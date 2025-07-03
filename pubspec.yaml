@@ -1,0 +1,7 @@
+name :  test_project
+
+environment:
+  sdk: '^3.8.0'
+
+dependencies:
+  http: ^1.4.0

@@ -1,0 +1,44 @@
+{
+  "results": [
+    {
+      "gender": "female",
+      "name": { "title": "Miss", "first": "Meral", "last": "Süleymanoğlu" },
+      "location": {
+        "street": { "number": 8177, "name": "Doktorlar Cd" },
+        "city": "Tekirdağ",
+        "state": "Çankırı",
+        "country": "Turkey",
+        "postcode": 91129,
+        "coordinates": { "latitude": "65.0986", "longitude": "71.2129" },
+        "timezone": { "offset": "-2:00", "description": "Mid-Atlantic" }
+      },
+      "email": "meral.suleymanoglu@example.com",
+      "login": {
+        "uuid": "ab16d2b3-e946-4ed0-9f83-81c4fef0bba6",
+        "username": "brownleopard183",
+        "password": "lopez",
+        "salt": "Msy5Zch7",
+        "md5": "1f90713f80e9aaa4667b591689b9e359",
+        "sha1": "6b42183750eef930e0d1aecbf16af8d99cc15958",
+        "sha256": "410048be57cfde7b532d55fe13dd598e11c7116e3234cc7c9bcd029409acabf9"
+      },
+      "dob": { "date": "1988-05-09T08:05:37.614Z", "age": 37 },
+      "registered": { "date": "2007-12-14T15:34:47.272Z", "age": 17 },
+      "phone": "(990)-776-4156",
+      "cell": "(244)-023-8552",
+      "id": { "name": "", "value": null },
+      "picture": {
+        "large": "https://randomuser.me/api/portraits/women/93.jpg",
+        "medium": "https://randomuser.me/api/portraits/med/women/93.jpg",
+        "thumbnail": "https://randomuser.me/api/portraits/thumb/women/93.jpg"
+      },
+      "nat": "TR"
+    }
+  ],
+  "info": {
+    "seed": "84e6a371f8971046",
+    "results": 1,
+    "page": 1,
+    "version": "1.4"
+  }
+}
