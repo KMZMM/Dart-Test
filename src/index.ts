@@ -1,8 +1,9 @@
-import { PaymentMethod, Prisma, Product, RequestStatus, SessionStep, User, WalletTransactionType } from "@prisma/client";
+import { PaymentMethod, Prisma, Product, ProductProvider, RequestStatus, SessionStep, StockMode, User, WalletTransactionType } from "@prisma/client";
 import { Bot, Context, InlineKeyboard } from "grammy";
 import type { User as TelegramUser } from "grammy/types";
 import { config } from "./config";
 import { prisma } from "./prisma";
+import { OutlineManagerClient } from "./services/outline";
 
 type BotContext = Context & { state: { dbUser?: User } };
 
@@ -33,6 +34,9 @@ const MIN_TOPUP_AMOUNT = 3000;
 const uiMessageByChat = new Map<number, number>();
 const PRODUCT_CATEGORY_VPN_KEYS = "VPN_KEYS";
 const PRODUCT_SUBCATEGORY_ALL_SIM_WIFI = "ALL_SIM_WIFI_VPN_KEYS";
+const OUTLINE_API_URL = process.env.OUTLINE_API_URL?.trim() || "";
+const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false";
+const outlineClient = OUTLINE_API_URL ? new OutlineManagerClient(OUTLINE_API_URL, OUTLINE_INSECURE_TLS) : null;
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WALLET: "Wallet",
@@ -65,6 +69,31 @@ function parsePositiveInt(text: string): number | null {
     return null;
   }
   return value;
+}
+
+function parseDataCapToBytes(dataCap: string): number | null {
+  const match = dataCap.trim().match(/^(\d+)\s*(TB|GB|MB)$/i);
+  if (!match) {
+    return null;
+  }
+  const value = Number(match[1]);
+  const unit = match[2].toUpperCase();
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  if (unit === "TB") return value * 1024 * 1024 * 1024 * 1024;
+  if (unit === "GB") return value * 1024 * 1024 * 1024;
+  return value * 1024 * 1024;
+}
+
+function buildOutlineKeyName(user: User, product: Product, index: number): string {
+  const base = (user.username || user.firstName || "user")
+    .normalize("NFKD")
+    .replace(/[^\w.-]/g, "")
+    .slice(0, 24) || "user";
+  const plan = product.code.replace(/[^\w.-]/g, "").slice(0, 24) || "plan";
+  const suffix = `${Date.now().toString().slice(-6)}${index + 1}`;
+  return `${base}-${plan}-${suffix}`;
 }
 
 function isAdminUser(telegramId: bigint, username?: string | null): boolean {
@@ -522,6 +551,46 @@ async function notifyAdminsManualWalletPurchase(
   return true;
 }
 
+async function notifyAdminsOutlineDeliveryIssue(
+  purchaseId: number,
+  user: User,
+  productName: string,
+  reason: string,
+) {
+  const adminIds = await resolveAdminTelegramIds();
+  if (!adminIds.length) {
+    return false;
+  }
+
+  const text = [
+    "Outline Delivery Failed",
+    "",
+    `User: ${displayName(user)}`,
+    `ID: ${user.telegramId.toString()}`,
+    `Purchase ID: ${purchaseId}`,
+    `Product: ${productName}`,
+    `Reason: ${reason}`,
+  ].join("\n");
+
+  await Promise.all(adminIds.map((adminId) => bot.api.sendMessage(adminId.toString(), text)));
+  return true;
+}
+
+async function generateOutlineKeys(user: User, product: Product, quantity: number): Promise<string[]> {
+  if (!outlineClient) {
+    throw new Error("Outline API is not configured");
+  }
+
+  const dataLimitBytes = parseDataCapToBytes(product.dataCap);
+  const urls: string[] = [];
+  for (let i = 0; i < quantity; i += 1) {
+    const keyName = buildOutlineKeyName(user, product, i);
+    const key = await outlineClient.createAccessKey(keyName, dataLimitBytes ?? undefined);
+    urls.push(key.accessUrl);
+  }
+  return urls;
+}
+
 async function resolveAdminTelegramIds(): Promise<bigint[]> {
   const ids = new Set<string>(config.adminIds.map((id) => id.toString()));
   const dbAdmins = await prisma.user.findMany({
@@ -569,7 +638,7 @@ async function sendProductList(ctx: BotContext, subCategory = PRODUCT_SUBCATEGOR
   const keyboard = new InlineKeyboard();
   for (const product of products) {
     const stockLabel = product.stockMode === "UNLIMITED"
-      ? "(\u221E)"
+      ? "(♾️)"
       : `(${stockByProduct.get(product.id) ?? 0})`;
     keyboard.text(`${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`, `prod:${product.id}`);
     keyboard.row();
@@ -625,7 +694,49 @@ async function processWalletPurchase(userId: number, product: Product, quantity:
       return { ok: false as const, reason: "INSUFFICIENT_BALANCE" as const, currentBalance: user.balance };
     }
 
-    if (!product.autoFulfill || product.stockMode === "UNLIMITED") {
+    if (product.provider === ProductProvider.OUTLINE) {
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { balance: { decrement: totalCost } },
+      });
+
+      const purchase = await tx.purchase.create({
+        data: {
+          userId,
+          productId: product.id,
+          quantity,
+          unitPrice: product.price,
+          totalCost,
+          paymentMethod: "WALLET",
+          status: "APPROVED",
+          reviewedAt: new Date(),
+          adminNote: "Outline auto-delivery",
+        },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          userId,
+          type: WalletTransactionType.PURCHASE_DEBIT,
+          amount: -totalCost,
+          balanceBefore: user.balance,
+          balanceAfter: updatedUser.balance,
+          description: `Wallet payment for ${product.name} x${quantity}`,
+          purchaseId: purchase.id,
+        },
+      });
+
+      return {
+        ok: true as const,
+        deliveryMode: "OUTLINE" as const,
+        keys: [] as string[],
+        purchaseId: purchase.id,
+        newBalance: updatedUser.balance,
+        totalCost,
+      };
+    }
+
+    if (!product.autoFulfill || product.stockMode === StockMode.UNLIMITED) {
       const updatedUser = await tx.user.update({
         where: { id: userId },
         data: { balance: { decrement: totalCost } },
@@ -659,7 +770,7 @@ async function processWalletPurchase(userId: number, product: Product, quantity:
 
       return {
         ok: true as const,
-        manual: true as const,
+        deliveryMode: "MANUAL" as const,
         keys: [] as string[],
         purchaseId: purchase.id,
         newBalance: updatedUser.balance,
@@ -724,7 +835,7 @@ async function processWalletPurchase(userId: number, product: Product, quantity:
 
     return {
       ok: true as const,
-      manual: false as const,
+      deliveryMode: "INSTANT_KEYS" as const,
       keys: keys.map((key) => key.keyValue),
       purchaseId: purchase.id,
       newBalance: updatedUser.balance,
@@ -823,12 +934,35 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
         user: purchase.user,
         product: purchase.product,
         approved: false,
+        deliveryMode: "REJECTED" as const,
         keys: [] as string[],
         reason: null as string | null,
       };
     }
 
-    if (!purchase.product.autoFulfill || purchase.product.stockMode === "UNLIMITED") {
+    if (purchase.product.provider === ProductProvider.OUTLINE) {
+      const approvedOutline = await tx.purchase.update({
+        where: { id: purchase.id },
+        data: {
+          status: "APPROVED",
+          reviewedByAdminId: adminUserId,
+          reviewedAt: new Date(),
+          adminNote: "Outline auto-delivery",
+        },
+      });
+
+      return {
+        purchase: approvedOutline,
+        user: purchase.user,
+        product: purchase.product,
+        approved: true,
+        deliveryMode: "OUTLINE" as const,
+        keys: [] as string[],
+        reason: null as string | null,
+      };
+    }
+
+    if (!purchase.product.autoFulfill || purchase.product.stockMode === StockMode.UNLIMITED) {
       const approvedManual = await tx.purchase.update({
         where: { id: purchase.id },
         data: {
@@ -844,7 +978,7 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
         user: purchase.user,
         product: purchase.product,
         approved: true,
-        manual: true,
+        deliveryMode: "MANUAL" as const,
         keys: [] as string[],
         reason: null as string | null,
       };
@@ -875,6 +1009,7 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
         user: purchase.user,
         product: purchase.product,
         approved: false,
+        deliveryMode: "REJECTED" as const,
         keys: [] as string[],
         reason: "INSUFFICIENT_STOCK",
       };
@@ -906,7 +1041,7 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
       user: purchase.user,
       product: purchase.product,
       approved: true,
-      manual: false,
+      deliveryMode: "INSTANT_KEYS" as const,
       keys: keys.map((k) => k.keyValue),
       reason: null as string | null,
     };
@@ -1080,7 +1215,46 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
 
     await clearSession(user.id);
 
-    if (result.manual) {
+    if (result.deliveryMode === "OUTLINE") {
+      try {
+        const keys = await generateOutlineKeys(user, product, quantity);
+        await ctx.reply(
+          [
+            "Purchase Successful",
+            "",
+            `Product: ${product.name}`,
+            `Quantity: ${quantity}`,
+            `Total Paid: ${formatKs(result.totalCost)}`,
+            `Remaining Balance: ${formatKs(result.newBalance)}`,
+            "",
+            "Keys:",
+            ...keys.map((key, index) => `${index + 1}. ${key}`),
+          ].join("\n"),
+        );
+      } catch (error) {
+        await ctx.reply(
+          [
+            "Purchase Successful",
+            "",
+            `Product: ${product.name}`,
+            `Quantity: ${quantity}`,
+            `Total Paid: ${formatKs(result.totalCost)}`,
+            `Remaining Balance: ${formatKs(result.newBalance)}`,
+            "",
+            "Payment confirmed. Key delivery is processing. Please wait.",
+          ].join("\n"),
+        );
+        await notifyAdminsOutlineDeliveryIssue(
+          result.purchaseId,
+          user,
+          product.name,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return;
+    }
+
+    if (result.deliveryMode === "MANUAL") {
       await ctx.reply(
         [
           "Purchase Successful",
@@ -1217,7 +1391,46 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
   }
 
   if (result.approved) {
-    const message = result.manual
+    if (result.deliveryMode === "OUTLINE") {
+      try {
+        const keys = await generateOutlineKeys(result.user, result.product, result.purchase.quantity);
+        await bot.api.sendMessage(
+          result.user.telegramId.toString(),
+          [
+            "Payment Confirmed",
+            "",
+            `Product: ${result.product.name}`,
+            `Quantity: ${result.purchase.quantity}`,
+            "",
+            "Keys:",
+            ...keys.map((key, index) => `${index + 1}. ${key}`),
+          ].join("\n"),
+        );
+      } catch (error) {
+        await bot.api.sendMessage(
+          result.user.telegramId.toString(),
+          [
+            "Payment Confirmed",
+            "",
+            `Product: ${result.product.name}`,
+            `Quantity: ${result.purchase.quantity}`,
+            "",
+            "Payment confirmed. Key delivery is processing. Please wait.",
+          ].join("\n"),
+        );
+        await notifyAdminsOutlineDeliveryIssue(
+          result.purchase.id,
+          result.user,
+          result.product.name,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      await ctx.answerCallbackQuery({ text: "Purchase approved" });
+      await ctx.reply(`Purchase #${id} approved.`);
+      return;
+    }
+
+    const message = result.deliveryMode === "MANUAL"
       ? [
         "Payment Confirmed",
         "",

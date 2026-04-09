@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import session from "express-session";
-import { Product } from "@prisma/client";
+import { ProductProvider, StockMode } from "@prisma/client";
 import { prisma } from "../prisma";
 import { OutlineManagerClient } from "../services/outline";
 
@@ -15,6 +15,8 @@ const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false
 
 const PRODUCT_CATEGORY_VPN_KEYS = "VPN_KEYS";
 const PRODUCT_SUBCATEGORY_ALL_SIM_WIFI = "ALL_SIM_WIFI_VPN_KEYS";
+
+type AdminTab = "products" | "outline";
 
 const DEFAULT_OUTLINE_PLANS = [
   { code: "OUTLINE_SG_100GB_1M", name: "Singapore Server (100Gb)", server: "Singapore", dataCap: "100GB", duration: "1 Month", price: 4000 },
@@ -39,13 +41,23 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
 function getFlashMessage(query: unknown): string {
   const raw = typeof query === "string" ? query : "";
   return raw ? escapeHtml(raw) : "";
+}
+
+function slug(input: string): string {
+  return input
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toUpperCase()
+    .slice(0, 36) || "PRODUCT";
 }
 
 function buildOutlineKeyName(username: string, productCode: string): string {
@@ -72,25 +84,25 @@ function renderLayout(title: string, body: string): string {
   <title>${escapeHtml(title)}</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; background: #f6f8fb; color: #111; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
     .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     h1, h2, h3 { margin: 0 0 12px; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    input, select, button, textarea { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
+    .tabs a { display:inline-block; margin-right:8px; padding:8px 12px; border-radius:8px; text-decoration:none; background:#e9edf5; color:#24324a; }
+    .tabs a.active { background:#1a73e8; color:#fff; }
+    input, select, button { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
     input, select { min-width: 180px; }
     button { cursor: pointer; }
     .btn { background: #1a73e8; color: #fff; border: none; }
     .btn-secondary { background: #3f4d64; color: #fff; border: none; }
-    .btn-danger { background: #c62828; color: #fff; border: none; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; font-size: 14px; }
+    th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; font-size: 14px; vertical-align: top; }
     .muted { color: #5d6575; font-size: 13px; }
+    code { font-size: 12px; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    ${body}
-  </div>
+  <div class="wrap">${body}</div>
 </body>
 </html>`;
 }
@@ -114,10 +126,10 @@ async function upsertOutlinePlan(input: {
       price: input.price,
       category: PRODUCT_CATEGORY_VPN_KEYS,
       subCategory: PRODUCT_SUBCATEGORY_ALL_SIM_WIFI,
-      provider: "OUTLINE",
-      stockMode: "UNLIMITED",
-      autoFulfill: false,
-      notes: "- Manual fulfillment for selected plans.\n- No refund after key activation.",
+      provider: ProductProvider.OUTLINE,
+      stockMode: StockMode.UNLIMITED,
+      autoFulfill: true,
+      notes: "- Key is delivered automatically after payment success.\\n- No refund after key activation.",
       isActive: true,
     },
     update: {
@@ -128,17 +140,81 @@ async function upsertOutlinePlan(input: {
       price: input.price,
       category: PRODUCT_CATEGORY_VPN_KEYS,
       subCategory: PRODUCT_SUBCATEGORY_ALL_SIM_WIFI,
-      provider: "OUTLINE",
-      stockMode: "UNLIMITED",
-      autoFulfill: false,
+      provider: ProductProvider.OUTLINE,
+      stockMode: StockMode.UNLIMITED,
+      autoFulfill: true,
       isActive: true,
     },
   });
 }
 
-async function renderAdminPage(message = ""): Promise<string> {
-  const plans = await prisma.product.findMany({
+function tabLink(tab: AdminTab, currentTab: AdminTab): string {
+  const active = tab === currentTab ? "active" : "";
+  const title = tab === "products" ? "Products" : "Outline Keys";
+  return `<a class="${active}" href="/admin?tab=${tab}">${title}</a>`;
+}
+
+async function renderProductsTab(): Promise<string> {
+  const products = await prisma.product.findMany({ orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }] });
+  const rows = products.map((product) => `
+    <tr>
+      <td>${escapeHtml(product.name)}</td>
+      <td>${escapeHtml(product.category)}</td>
+      <td>${escapeHtml(product.subCategory)}</td>
+      <td>${escapeHtml(product.provider)}</td>
+      <td>${escapeHtml(product.stockMode)}</td>
+      <td>${product.autoFulfill ? "Yes" : "No"}</td>
+      <td>${product.price.toLocaleString("en-US")} Ks</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div class="card">
+      <h2>Products Menu</h2>
+      <p class="muted">Use this page for all current and future product architectures.</p>
+      <div class="row">
+        <form method="post" action="/admin/products/sync-outline"><button class="btn" type="submit">Sync Default Outline Products</button></form>
+      </div>
+      <br />
+      <form method="post" action="/admin/products/create" class="row">
+        <input name="name" placeholder="Product Name" required />
+        <select name="category">
+          <option value="VPN_KEYS">VPN_KEYS</option>
+          <option value="ACCOUNTS">ACCOUNTS</option>
+          <option value="SOCIAL_SERVICES">SOCIAL_SERVICES</option>
+          <option value="OTHER">OTHER</option>
+        </select>
+        <input name="subCategory" placeholder="Sub-category" value="GENERAL" required />
+        <select name="provider">
+          <option value="INTERNAL">INTERNAL</option>
+          <option value="OUTLINE">OUTLINE</option>
+        </select>
+        <select name="stockMode">
+          <option value="FINITE">FINITE</option>
+          <option value="UNLIMITED">UNLIMITED</option>
+        </select>
+        <input name="server" placeholder="Server" value="Singapore" />
+        <input name="dataCap" placeholder="Data (e.g. 100GB)" value="100GB" />
+        <input name="duration" placeholder="Duration" value="1 Month" />
+        <input name="price" type="number" min="100" placeholder="Price Ks" required />
+        <button class="btn" type="submit">Add Product</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>All Products</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Sub-category</th><th>Provider</th><th>Stock</th><th>Auto</th><th>Price</th></tr></thead>
+        <tbody>${rows || "<tr><td colspan='7'>No products yet</td></tr>"}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderOutlineTab(): Promise<string> {
+  const outlineProducts = await prisma.product.findMany({
     where: {
+      provider: ProductProvider.OUTLINE,
       category: PRODUCT_CATEGORY_VPN_KEYS,
       subCategory: PRODUCT_SUBCATEGORY_ALL_SIM_WIFI,
     },
@@ -146,17 +222,9 @@ async function renderAdminPage(message = ""): Promise<string> {
   });
 
   const keys = outlineClient ? await outlineClient.listAccessKeys() : [];
-  const flash = message ? `<p class="muted">${escapeHtml(message)}</p>` : "";
-
-  const planRows = plans.map((plan) => `
-    <tr>
-      <td>${escapeHtml(plan.code)}</td>
-      <td>${escapeHtml(plan.name)}</td>
-      <td>${escapeHtml(plan.dataCap)}</td>
-      <td>${plan.price.toLocaleString("en-US")} Ks</td>
-      <td>${plan.autoFulfill ? "Auto" : "Manual"}</td>
-    </tr>
-  `).join("");
+  const productOptions = outlineProducts
+    .map((product) => `<option value="${product.id}">${escapeHtml(product.name)} (${product.price.toLocaleString("en-US")} Ks)</option>`)
+    .join("");
 
   const keyRows = keys.map((key) => `
     <tr>
@@ -166,52 +234,41 @@ async function renderAdminPage(message = ""): Promise<string> {
     </tr>
   `).join("");
 
-  const planOptions = plans.map((plan) => `<option value="${escapeHtml(plan.code)}">${escapeHtml(plan.name)}</option>`).join("");
-
-  return renderLayout("TechStore Admin", `
-    <div class="card">
-      <h1>TechStore Admin</h1>
-      <p class="muted">Outline API: ${OUTLINE_API_URL ? "Connected" : "Not configured"}</p>
-      ${flash}
-      <form method="post" action="/logout"><button class="btn-secondary" type="submit">Logout</button></form>
-    </div>
-
-    <div class="card">
-      <h2>Outline VPN Plans (Unlimited Stock)</h2>
-      <div class="row">
-        <form method="post" action="/admin/plans/seed"><button class="btn" type="submit">Seed 5 Default Plans</button></form>
-      </div>
-      <br />
-      <form method="post" action="/admin/plans/upsert" class="row">
-        <input name="code" placeholder="Code (OUTLINE_...)" required />
-        <input name="name" placeholder="Display Name" required />
-        <input name="server" placeholder="Server" value="Singapore" required />
-        <input name="dataCap" placeholder="Data (100GB)" required />
-        <input name="duration" placeholder="Duration (1 Month)" value="1 Month" required />
-        <input name="price" placeholder="Price (Ks)" type="number" min="1000" required />
-        <button class="btn" type="submit">Save Plan</button>
-      </form>
-      <br />
-      <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Data</th><th>Price</th><th>Delivery</th></tr></thead>
-        <tbody>${planRows || "<tr><td colspan='5'>No plans yet</td></tr>"}</tbody>
-      </table>
-    </div>
-
+  return `
     <div class="card">
       <h2>Outline Keys</h2>
-      <p class="muted">Create key name based on username + plan code.</p>
+      <p class="muted">Create a test key using username + selected product. Order flow in bot delivers keys automatically.</p>
+      <p class="muted">Outline API: ${OUTLINE_API_URL ? "Connected" : "Not configured"}</p>
       <form method="post" action="/admin/outline/create-key" class="row">
         <input name="username" placeholder="Telegram username" required />
-        <select name="planCode">${planOptions}</select>
-        <button class="btn" type="submit">Create Key</button>
+        <select name="productId">${productOptions || "<option value=''>No outline products</option>"}</select>
+        <button class="btn" type="submit">Create Test Key</button>
       </form>
-      <br />
+    </div>
+
+    <div class="card">
+      <h3>Existing Outline Access Keys</h3>
       <table>
         <thead><tr><th>ID</th><th>Name</th><th>Access URL</th></tr></thead>
         <tbody>${keyRows || "<tr><td colspan='3'>No keys found</td></tr>"}</tbody>
       </table>
     </div>
+  `;
+}
+
+async function renderAdminPage(tab: AdminTab, message = ""): Promise<string> {
+  const flash = message ? `<p class="muted">${escapeHtml(message)}</p>` : "";
+  const tabContent = tab === "outline" ? await renderOutlineTab() : await renderProductsTab();
+
+  return renderLayout("TechStore Admin", `
+    <div class="card">
+      <h1>TechStore Admin</h1>
+      ${flash}
+      <div class="tabs">${tabLink("products", tab)}${tabLink("outline", tab)}</div>
+      <br />
+      <form method="post" action="/logout"><button class="btn-secondary" type="submit">Logout</button></form>
+    </div>
+    ${tabContent}
   `);
 }
 
@@ -259,50 +316,84 @@ async function main() {
   });
 
   app.get("/admin", adminOnly, async (req, res) => {
+    const tabRaw = typeof req.query.tab === "string" ? req.query.tab : "products";
+    const tab: AdminTab = tabRaw === "outline" ? "outline" : "products";
     const message = getFlashMessage(req.query.message);
-    res.send(await renderAdminPage(message));
+    res.send(await renderAdminPage(tab, message));
   });
 
-  app.post("/admin/plans/seed", adminOnly, async (_req, res) => {
+  app.post("/admin/products/sync-outline", adminOnly, async (_req, res) => {
     for (const plan of DEFAULT_OUTLINE_PLANS) {
       await upsertOutlinePlan(plan);
     }
-    res.redirect("/admin?message=Default%20Outline%20plans%20seeded");
+    res.redirect("/admin?tab=products&message=Outline%20products%20synced");
   });
 
-  app.post("/admin/plans/upsert", adminOnly, async (req, res) => {
-    const code = String(req.body.code || "").trim().toUpperCase();
+  app.post("/admin/products/create", adminOnly, async (req, res) => {
     const name = String(req.body.name || "").trim();
-    const server = String(req.body.server || "").trim() || "Singapore";
-    const dataCap = String(req.body.dataCap || "").trim();
-    const duration = String(req.body.duration || "").trim() || "1 Month";
+    const category = String(req.body.category || "OTHER").trim().toUpperCase();
+    const subCategory = String(req.body.subCategory || "GENERAL").trim().toUpperCase();
+    const providerRaw = String(req.body.provider || "INTERNAL").trim().toUpperCase();
+    const stockModeRaw = String(req.body.stockMode || "FINITE").trim().toUpperCase();
+    const server = String(req.body.server || "").trim() || "General";
+    const dataCap = String(req.body.dataCap || "").trim() || "N/A";
+    const duration = String(req.body.duration || "").trim() || "N/A";
     const price = Number(req.body.price || 0);
 
-    if (!code || !name || !dataCap || !Number.isFinite(price) || price <= 0) {
-      res.redirect("/admin?message=Invalid%20plan%20input");
+    if (!name || !Number.isFinite(price) || price <= 0) {
+      res.redirect("/admin?tab=products&message=Invalid%20product%20input");
       return;
     }
 
-    await upsertOutlinePlan({ code, name, server, dataCap, duration, price });
-    res.redirect("/admin?message=Plan%20saved");
+    const provider = providerRaw === "OUTLINE" ? ProductProvider.OUTLINE : ProductProvider.INTERNAL;
+    const stockMode = stockModeRaw === "UNLIMITED" ? StockMode.UNLIMITED : StockMode.FINITE;
+    const code = `${category}_${slug(name)}_${Date.now().toString().slice(-6)}`;
+
+    await prisma.product.create({
+      data: {
+        code,
+        name,
+        category,
+        subCategory,
+        provider,
+        stockMode,
+        autoFulfill: provider === ProductProvider.OUTLINE || stockMode === StockMode.FINITE,
+        server,
+        dataCap,
+        duration,
+        price,
+        notes: provider === ProductProvider.OUTLINE
+          ? "- Key is delivered automatically after payment success."
+          : "",
+        isActive: true,
+      },
+    });
+
+    res.redirect("/admin?tab=products&message=Product%20created");
   });
 
   app.post("/admin/outline/create-key", adminOnly, async (req, res) => {
     if (!outlineClient) {
-      res.redirect("/admin?message=Outline%20API%20not%20configured");
+      res.redirect("/admin?tab=outline&message=Outline%20API%20not%20configured");
       return;
     }
 
     const username = String(req.body.username || "").trim();
-    const planCode = String(req.body.planCode || "").trim();
-    if (!username || !planCode) {
-      res.redirect("/admin?message=Username%20and%20plan%20code%20are%20required");
+    const productId = Number(req.body.productId || 0);
+    if (!username || !Number.isInteger(productId) || productId <= 0) {
+      res.redirect("/admin?tab=outline&message=Invalid%20input");
       return;
     }
 
-    const keyName = buildOutlineKeyName(username, planCode);
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) {
+      res.redirect("/admin?tab=outline&message=Product%20not%20found");
+      return;
+    }
+
+    const keyName = buildOutlineKeyName(username, product.code);
     const key = await outlineClient.createAccessKey(keyName);
-    res.redirect(`/admin?message=Created%20key%20${encodeURIComponent(key.id)}`);
+    res.redirect(`/admin?tab=outline&message=Created%20key%20${encodeURIComponent(key.id)}`);
   });
 
   app.get("/health", (_req, res) => {
@@ -316,4 +407,3 @@ async function main() {
 }
 
 void main();
-

@@ -18,8 +18,8 @@ async function main() {
       subCategory: "ALL_SIM_WIFI_VPN_KEYS",
       provider: ProductProvider.OUTLINE,
       stockMode: StockMode.UNLIMITED,
-      autoFulfill: false,
-      notes: "- Key duration is 1 month.\n- Manual fulfillment for selected plans.\n- Do not share your key.",
+      autoFulfill: true,
+      notes: "- Key duration is 1 month.\n- Key is delivered automatically after payment success.\n- Do not share your key.",
     },
     {
       code: "OUTLINE_SG_200GB_1M",
@@ -32,8 +32,8 @@ async function main() {
       subCategory: "ALL_SIM_WIFI_VPN_KEYS",
       provider: ProductProvider.OUTLINE,
       stockMode: StockMode.UNLIMITED,
-      autoFulfill: false,
-      notes: "- Key duration is 1 month.\n- Manual fulfillment for selected plans.\n- Do not share your key.",
+      autoFulfill: true,
+      notes: "- Key duration is 1 month.\n- Key is delivered automatically after payment success.\n- Do not share your key.",
     },
     {
       code: "OUTLINE_SG_300GB_1M",
@@ -46,8 +46,8 @@ async function main() {
       subCategory: "ALL_SIM_WIFI_VPN_KEYS",
       provider: ProductProvider.OUTLINE,
       stockMode: StockMode.UNLIMITED,
-      autoFulfill: false,
-      notes: "- Key duration is 1 month.\n- Manual fulfillment for selected plans.\n- Do not share your key.",
+      autoFulfill: true,
+      notes: "- Key duration is 1 month.\n- Key is delivered automatically after payment success.\n- Do not share your key.",
     },
     {
       code: "OUTLINE_SG_500GB_1M",
@@ -60,8 +60,8 @@ async function main() {
       subCategory: "ALL_SIM_WIFI_VPN_KEYS",
       provider: ProductProvider.OUTLINE,
       stockMode: StockMode.UNLIMITED,
-      autoFulfill: false,
-      notes: "- Key duration is 1 month.\n- Manual fulfillment for selected plans.\n- Do not share your key.",
+      autoFulfill: true,
+      notes: "- Key duration is 1 month.\n- Key is delivered automatically after payment success.\n- Do not share your key.",
     },
     {
       code: "OUTLINE_SG_1000GB_1M",
@@ -74,8 +74,8 @@ async function main() {
       subCategory: "ALL_SIM_WIFI_VPN_KEYS",
       provider: ProductProvider.OUTLINE,
       stockMode: StockMode.UNLIMITED,
-      autoFulfill: false,
-      notes: "- Key duration is 1 month.\n- Manual fulfillment for selected plans.\n- Do not share your key.",
+      autoFulfill: true,
+      notes: "- Key duration is 1 month.\n- Key is delivered automatically after payment success.\n- Do not share your key.",
     },
   ];
 

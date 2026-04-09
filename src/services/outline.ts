@@ -12,6 +12,11 @@ type OutlineListKeysResponse = {
 };
 
 type OutlineCreateKeyResponse = OutlineAccessKey;
+type OutlineSetLimitRequest = {
+  limit: {
+    bytes: number;
+  };
+};
 
 function sanitizeOutlineBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
@@ -34,9 +39,16 @@ export class OutlineManagerClient {
     return response.data.accessKeys ?? [];
   }
 
-  async createAccessKey(name?: string): Promise<OutlineAccessKey> {
+  async createAccessKey(name?: string, dataLimitBytes?: number): Promise<OutlineAccessKey> {
     const response = await this.client.post<OutlineCreateKeyResponse>("/access-keys");
     const key = response.data;
+    if (dataLimitBytes && key.id) {
+      try {
+        await this.setDataLimit(key.id, dataLimitBytes);
+      } catch {
+        // Ignore limit errors and still return key.
+      }
+    }
     if (name && key.id) {
       try {
         await this.renameAccessKey(key.id, name);
@@ -51,5 +63,11 @@ export class OutlineManagerClient {
   async renameAccessKey(keyId: string, name: string): Promise<void> {
     await this.client.put(`/access-keys/${encodeURIComponent(keyId)}/name`, { name });
   }
-}
 
+  async setDataLimit(keyId: string, bytes: number): Promise<void> {
+    const payload: OutlineSetLimitRequest = {
+      limit: { bytes },
+    };
+    await this.client.put(`/access-keys/${encodeURIComponent(keyId)}/data-limit`, payload);
+  }
+}
