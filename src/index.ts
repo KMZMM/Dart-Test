@@ -142,6 +142,7 @@ function guideMenuKeyboard(): InlineKeyboard {
 function productDetailsKeyboard(productId: number): InlineKeyboard {
   return new InlineKeyboard()
     .text("Buy 1", `buy1:${productId}`)
+    .row()
     .text("Buy Multiple", `buym:${productId}`)
     .row()
     .text("Back", "main:buyvpn");
@@ -152,9 +153,11 @@ function paymentChoiceKeyboard(productId: number, quantity: number): InlineKeybo
     .text("Pay with Wallet", `pay:WALLET:${productId}:${quantity}`)
     .row()
     .text("KBZ Pay", `pay:KBZ_PAY:${productId}:${quantity}`)
+    .row()
     .text("Wave Pay", `pay:WAVE_PAY:${productId}:${quantity}`)
     .row()
     .text("UAB Pay", `pay:UAB_PAY:${productId}:${quantity}`)
+    .row()
     .text("AYA Pay", `pay:AYA_PAY:${productId}:${quantity}`)
     .row()
     .text("Cancel", "main:buyvpn");
@@ -504,14 +507,22 @@ async function sendProductList(ctx: BotContext): Promise<void> {
     return;
   }
 
+  const stockGroups = await prisma.vpnKey.groupBy({
+    by: ["productId"],
+    where: {
+      status: "AVAILABLE",
+      productId: { in: products.map((product) => product.id) },
+    },
+    _count: { _all: true },
+  });
+  const stockByProduct = new Map<number, number>(
+    stockGroups.map((group) => [group.productId, group._count._all]),
+  );
+
   const keyboard = new InlineKeyboard();
-  for (let i = 0; i < products.length; i += 2) {
-    const left = products[i];
-    const right = products[i + 1];
-    keyboard.text(`${left.name} | ${formatKs(left.price)}/month`, `prod:${left.id}`);
-    if (right) {
-      keyboard.text(`${right.name} | ${formatKs(right.price)}/month`, `prod:${right.id}`);
-    }
+  for (const product of products) {
+    const stock = stockByProduct.get(product.id) ?? 0;
+    keyboard.text(`${product.name} (${stock}) | ${formatKs(product.price)}/month`, `prod:${product.id}`);
     keyboard.row();
   }
   keyboard.text("⬅️ Back", "main:menu");
