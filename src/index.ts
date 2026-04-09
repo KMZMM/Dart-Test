@@ -27,6 +27,8 @@ type BuyScreenshotSessionData = {
 };
 
 const bot = new Bot<BotContext>(config.botToken);
+const MIN_TOPUP_AMOUNT = 3000;
+const uiMessageByChat = new Map<number, number>();
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WALLET: "Wallet",
@@ -78,26 +80,38 @@ function formatDate(date: Date): string {
 
 function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Top Up", "main:topup")
-    .text("Buy VPN Key", "main:buyvpn")
+    .text("🟢 Top Up", "main:topup")
     .row()
-    .text("Transaction History", "main:history")
-    .text("Guide", "main:guide")
+    .text("🔵 Buy VPN Key", "main:buyvpn")
     .row()
-    .url("Join Channel", config.channelLink);
+    .text("🟠 Transaction History", "main:history")
+    .row()
+    .text("🟣 Guide", "main:guide")
+    .row()
+    .url("🟢 Join Channel", config.channelLink);
 }
 
 function topUpMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("KBZ Pay", "topup:method:KBZ_PAY")
-    .text("Wave Pay", "topup:method:WAVE_PAY")
+    .text("🟢 KBZ Pay", "topup:method:KBZ_PAY")
     .row()
-    .text("UAB Pay", "topup:method:UAB_PAY")
-    .text("AYA Pay", "topup:method:AYA_PAY")
+    .text("🟡 Wave Pay", "topup:method:WAVE_PAY")
     .row()
-    .text("Top-Up History", "topup:history")
+    .text("🔵 UAB Pay", "topup:method:UAB_PAY")
     .row()
-    .text("Back", "main:menu");
+    .text("🟣 AYA Pay", "topup:method:AYA_PAY")
+    .row()
+    .text("🧾 Top-Up History", "topup:history")
+    .row()
+    .text("⬅️ Back", "main:menu");
+}
+
+function topUpCancelKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("🔴 Cancel", "topup:cancel");
+}
+
+function buyCancelKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("🔴 Cancel", "buy:cancel");
 }
 
 function guideMenuKeyboard(): InlineKeyboard {
@@ -147,15 +161,47 @@ function buildMainMenuText(user: User): string {
 }
 
 async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboard): Promise<void> {
+  const chatId = ctx.chat?.id;
   if (ctx.callbackQuery?.message) {
     try {
       await ctx.editMessageText(text, { reply_markup: keyboard });
+      if (chatId) {
+        uiMessageByChat.set(chatId, ctx.callbackQuery.message.message_id);
+      }
       return;
     } catch {
       // Fallback to a new message when editing is not possible.
     }
   }
-  await ctx.reply(text, { reply_markup: keyboard });
+  if (chatId) {
+    const previousMessageId = uiMessageByChat.get(chatId);
+    if (previousMessageId) {
+      try {
+        await ctx.api.editMessageText(chatId, previousMessageId, text, { reply_markup: keyboard });
+        return;
+      } catch {
+        // Ignore and fallback to sending a new message.
+      }
+    }
+  }
+
+  const sent = await ctx.reply(text, { reply_markup: keyboard });
+  if (chatId) {
+    uiMessageByChat.set(chatId, sent.message_id);
+  }
+}
+
+async function cleanupIncomingMessage(ctx: BotContext): Promise<void> {
+  const messageId = ctx.msg?.message_id;
+  const chatId = ctx.chat?.id;
+  if (!messageId || !chatId) {
+    return;
+  }
+  try {
+    await ctx.api.deleteMessage(chatId, messageId);
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
 async function getSession(userId: number) {
@@ -748,7 +794,32 @@ bot.callbackQuery(/^topup:method:(KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY)$/, async (ct
   await ctx.answerCallbackQuery();
   const method = ctx.match[1] as PaymentMethod;
   await setSession(user.id, "TOPUP_ENTER_AMOUNT", { paymentMethod: method });
-  await ctx.reply("Enter the amount you want to top up (MMK):");
+  await respondMenu(
+    ctx,
+    [
+      "Top-Up Amount",
+      "",
+      `Method: ${PAYMENT_METHOD_LABELS[method]}`,
+      `Enter amount in MMK (minimum ${formatKs(MIN_TOPUP_AMOUNT)}):`,
+    ].join("\n"),
+    topUpCancelKeyboard(),
+  );
+});
+
+bot.callbackQuery("topup:cancel", async (ctx) => {
+  const user = ctx.state.dbUser;
+  if (!user) return;
+  await ctx.answerCallbackQuery({ text: "Top-up canceled" });
+  await clearSession(user.id);
+  await sendMainMenu(ctx, user.id);
+});
+
+bot.callbackQuery("buy:cancel", async (ctx) => {
+  const user = ctx.state.dbUser;
+  if (!user) return;
+  await ctx.answerCallbackQuery({ text: "Purchase canceled" });
+  await clearSession(user.id);
+  await sendMainMenu(ctx, user.id);
 });
 
 bot.callbackQuery("main:buyvpn", async (ctx) => {
@@ -854,7 +925,8 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
   };
   await setSession(user.id, "BUY_WAIT_SCREENSHOT", sessionData as unknown as Prisma.InputJsonValue);
 
-  await ctx.reply(
+  await respondMenu(
+    ctx,
     [
       "Please transfer the total amount to:",
       "",
@@ -866,6 +938,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
       "",
       "After payment, send your screenshot.",
     ].join("\n"),
+    buyCancelKeyboard(),
   );
 });
 
@@ -993,15 +1066,32 @@ bot.on("message:text", async (ctx) => {
     const data = session.data as unknown as TopUpAmountSessionData | null;
     if (!data?.paymentMethod) {
       await clearSession(user.id);
-      await ctx.reply("Session expired. Please open Top Up again.");
+      await respondMenu(ctx, "Session expired. Please open Top Up again.", topUpMenuKeyboard());
       return;
     }
 
     const amount = parsePositiveInt(text);
     if (!amount) {
-      await ctx.reply("Please enter a valid amount in MMK.");
+      await cleanupIncomingMessage(ctx);
+      await respondMenu(
+        ctx,
+        `Please enter a valid amount in MMK (minimum ${formatKs(MIN_TOPUP_AMOUNT)}).`,
+        topUpCancelKeyboard(),
+      );
       return;
     }
+
+    if (amount < MIN_TOPUP_AMOUNT) {
+      await cleanupIncomingMessage(ctx);
+      await respondMenu(
+        ctx,
+        `Minimum top-up amount is ${formatKs(MIN_TOPUP_AMOUNT)}.\nPlease enter a higher amount.`,
+        topUpCancelKeyboard(),
+      );
+      return;
+    }
+
+    await cleanupIncomingMessage(ctx);
 
     const nextData: TopUpScreenshotSessionData = {
       paymentMethod: data.paymentMethod,
@@ -1009,7 +1099,8 @@ bot.on("message:text", async (ctx) => {
     };
     await setSession(user.id, "TOPUP_WAIT_SCREENSHOT", nextData as unknown as Prisma.InputJsonValue);
 
-    await ctx.reply(
+    await respondMenu(
+      ctx,
       [
         "Please transfer the amount to the following account:",
         "",
@@ -1020,6 +1111,7 @@ bot.on("message:text", async (ctx) => {
         "",
         "After completing the transfer, send your transaction screenshot here.",
       ].join("\n"),
+      topUpCancelKeyboard(),
     );
     return;
   }
@@ -1034,9 +1126,11 @@ bot.on("message:text", async (ctx) => {
 
     const quantity = parsePositiveInt(text);
     if (!quantity) {
+      await cleanupIncomingMessage(ctx);
       await ctx.reply("Please enter a valid quantity.");
       return;
     }
+    await cleanupIncomingMessage(ctx);
 
     const product = await loadProduct(data.productId);
     if (!product) {
@@ -1051,7 +1145,12 @@ bot.on("message:text", async (ctx) => {
   }
 
   if (session.step === "TOPUP_WAIT_SCREENSHOT" || session.step === "BUY_WAIT_SCREENSHOT") {
-    await ctx.reply("Please send your payment screenshot image.");
+    await cleanupIncomingMessage(ctx);
+    if (session.step === "TOPUP_WAIT_SCREENSHOT") {
+      await respondMenu(ctx, "Please send your payment screenshot image.", topUpCancelKeyboard());
+      return;
+    }
+    await respondMenu(ctx, "Please send your payment screenshot image.", buyCancelKeyboard());
   }
 });
 
@@ -1071,7 +1170,7 @@ bot.on("message:photo", async (ctx) => {
     const data = session.data as unknown as TopUpScreenshotSessionData | null;
     if (!data?.paymentMethod || !data.amount) {
       await clearSession(user.id);
-      await ctx.reply("Session expired. Please start top-up again.");
+      await respondMenu(ctx, "Session expired. Please start top-up again.", topUpMenuKeyboard());
       return;
     }
 
@@ -1086,8 +1185,10 @@ bot.on("message:photo", async (ctx) => {
     });
 
     await clearSession(user.id);
+    await cleanupIncomingMessage(ctx);
 
-    await ctx.reply(
+    await respondMenu(
+      ctx,
       [
         "Payment is being processed.",
         "",
@@ -1095,6 +1196,7 @@ bot.on("message:photo", async (ctx) => {
         `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
         "Status: Pending Approval",
       ].join("\n"),
+      new InlineKeyboard().text("⬅️ Main Menu", "main:menu"),
     );
 
     const adminNotified = await notifyAdminsTopup(
@@ -1140,8 +1242,10 @@ bot.on("message:photo", async (ctx) => {
     });
 
     await clearSession(user.id);
+    await cleanupIncomingMessage(ctx);
 
-    await ctx.reply(
+    await respondMenu(
+      ctx,
       [
         "Payment is being processed.",
         "",
@@ -1151,6 +1255,7 @@ bot.on("message:photo", async (ctx) => {
         `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
         "Status: Pending Approval",
       ].join("\n"),
+      new InlineKeyboard().text("⬅️ Main Menu", "main:menu"),
     );
 
     const adminNotified = await notifyAdminsPurchase(
