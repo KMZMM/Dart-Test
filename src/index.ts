@@ -31,6 +31,8 @@ type BuyScreenshotSessionData = {
 const bot = new Bot<BotContext>(config.botToken);
 const MIN_TOPUP_AMOUNT = 3000;
 const uiMessageByChat = new Map<number, number>();
+const PRODUCT_CATEGORY_VPN_KEYS = "VPN_KEYS";
+const PRODUCT_SUBCATEGORY_ALL_SIM_WIFI = "ALL_SIM_WIFI_VPN_KEYS";
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WALLET: "Wallet",
@@ -94,13 +96,13 @@ function boldText(text: string): string {
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🛍 Buy VPN Key", callback_data: "main:buyvpn" }],
+      [{ text: "Buy Vpn Keys", callback_data: "main:buyvpn" }],
       [
-        { text: "🧾 Transaction History", callback_data: "main:history" },
-        { text: "🟣 Guide", callback_data: "main:guide" },
+        { text: "Transaction History", callback_data: "main:history" },
+        { text: "Guide", callback_data: "main:guide" },
       ],
-      [{ text: "🟢 Join Channel", url: config.channelLink }],
-      [{ text: "🟢 Top Up", callback_data: "main:topup", style: "success" }],
+      [{ text: "Join Channel", url: config.channelLink }],
+      [{ text: "Top Up", callback_data: "main:topup", style: "success" }],
     ],
   } as any;
 }
@@ -113,7 +115,16 @@ function topUpMenuKeyboard() {
       [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY" }],
       [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY" }],
       [{ text: "Top-Up History", callback_data: "topup:history" }],
-      [{ text: "⬅️ Back", callback_data: "main:menu" }],
+      [{ text: "Back", callback_data: "main:menu" }],
+    ],
+  } as any;
+}
+
+function vpnRootKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "All Sim & Wifi Vpn Keys", callback_data: "vpn:child:all_sim_wifi" }],
+      [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
 }
@@ -482,6 +493,35 @@ async function notifyAdminsPurchase(
   return true;
 }
 
+async function notifyAdminsManualWalletPurchase(
+  purchaseId: number,
+  user: User,
+  productName: string,
+  quantity: number,
+  totalCost: number,
+) {
+  const adminIds = await resolveAdminTelegramIds();
+  if (!adminIds.length) {
+    return false;
+  }
+
+  const text = [
+    "Manual Delivery Purchase",
+    "",
+    `User: ${displayName(user)}`,
+    `ID: ${user.telegramId.toString()}`,
+    `Product: ${productName}`,
+    `Quantity: ${quantity}`,
+    `Amount: ${formatKs(totalCost)}`,
+    `Purchase ID: ${purchaseId}`,
+    "",
+    "Payment was completed via wallet. Please deliver key manually.",
+  ].join("\n");
+
+  await Promise.all(adminIds.map((adminId) => bot.api.sendMessage(adminId.toString(), text)));
+  return true;
+}
+
 async function resolveAdminTelegramIds(): Promise<bigint[]> {
   const ids = new Set<string>(config.adminIds.map((id) => id.toString()));
   const dbAdmins = await prisma.user.findMany({
@@ -496,47 +536,58 @@ async function resolveAdminTelegramIds(): Promise<bigint[]> {
   return Array.from(ids, (id) => BigInt(id));
 }
 
-async function sendProductList(ctx: BotContext): Promise<void> {
+async function sendProductList(ctx: BotContext, subCategory = PRODUCT_SUBCATEGORY_ALL_SIM_WIFI): Promise<void> {
   const products = await prisma.product.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      category: PRODUCT_CATEGORY_VPN_KEYS,
+      subCategory,
+    },
     orderBy: { price: "asc" },
   });
 
   if (!products.length) {
-    await respondMenu(ctx, "No products available right now.", new InlineKeyboard().text("Back", "main:menu"));
+    await respondMenu(ctx, "No products available right now.", new InlineKeyboard().text("Back", "main:buyvpn"));
     return;
   }
 
-  const stockGroups = await prisma.vpnKey.groupBy({
-    by: ["productId"],
-    where: {
-      status: "AVAILABLE",
-      productId: { in: products.map((product) => product.id) },
-    },
-    _count: { _all: true },
-  });
+  const finiteProductIds = products.filter((product) => product.stockMode === "FINITE").map((product) => product.id);
+  const stockGroups = finiteProductIds.length
+    ? await prisma.vpnKey.groupBy({
+      by: ["productId"],
+      where: {
+        status: "AVAILABLE",
+        productId: { in: finiteProductIds },
+      },
+      _count: { _all: true },
+    })
+    : [];
   const stockByProduct = new Map<number, number>(
     stockGroups.map((group) => [group.productId, group._count._all]),
   );
 
   const keyboard = new InlineKeyboard();
   for (const product of products) {
-    const stock = stockByProduct.get(product.id) ?? 0;
-    keyboard.text(`${product.name} | (${stock}) | ${formatKs(product.price)}/month`, `prod:${product.id}`);
+    const stockLabel = product.stockMode === "UNLIMITED"
+      ? "(\u221E)"
+      : `(${stockByProduct.get(product.id) ?? 0})`;
+    keyboard.text(`${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`, `prod:${product.id}`);
     keyboard.row();
   }
-  keyboard.text("⬅️ Back", "main:menu");
+  keyboard.text("Back", "main:buyvpn");
 
   await respondMenu(ctx, "Hi, please choose a product:", keyboard);
 }
 
 async function sendProductDetails(ctx: BotContext, product: Product): Promise<void> {
+  const stockText = product.stockMode === "UNLIMITED" ? "Unlimited" : "Limited";
   const text = [
     "Product Details",
     "",
     `Server: ${product.server}`,
     `Data: ${product.dataCap}`,
     `Duration: ${product.duration}`,
+    `Stock: ${stockText}`,
     `Price: ${formatKs(product.price)}/month`,
     "",
     "Notes:",
@@ -572,6 +623,48 @@ async function processWalletPurchase(userId: number, product: Product, quantity:
 
     if (user.balance < totalCost) {
       return { ok: false as const, reason: "INSUFFICIENT_BALANCE" as const, currentBalance: user.balance };
+    }
+
+    if (!product.autoFulfill || product.stockMode === "UNLIMITED") {
+      const updatedUser = await tx.user.update({
+        where: { id: userId },
+        data: { balance: { decrement: totalCost } },
+      });
+
+      const purchase = await tx.purchase.create({
+        data: {
+          userId,
+          productId: product.id,
+          quantity,
+          unitPrice: product.price,
+          totalCost,
+          paymentMethod: "WALLET",
+          status: "APPROVED",
+          reviewedAt: new Date(),
+          adminNote: "Manual fulfillment pending",
+        },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          userId,
+          type: WalletTransactionType.PURCHASE_DEBIT,
+          amount: -totalCost,
+          balanceBefore: user.balance,
+          balanceAfter: updatedUser.balance,
+          description: `Wallet payment for ${product.name} x${quantity}`,
+          purchaseId: purchase.id,
+        },
+      });
+
+      return {
+        ok: true as const,
+        manual: true as const,
+        keys: [] as string[],
+        purchaseId: purchase.id,
+        newBalance: updatedUser.balance,
+        totalCost,
+      };
     }
 
     const keys = await tx.vpnKey.findMany({
@@ -631,7 +724,9 @@ async function processWalletPurchase(userId: number, product: Product, quantity:
 
     return {
       ok: true as const,
+      manual: false as const,
       keys: keys.map((key) => key.keyValue),
+      purchaseId: purchase.id,
       newBalance: updatedUser.balance,
       totalCost,
     };
@@ -733,6 +828,28 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
       };
     }
 
+    if (!purchase.product.autoFulfill || purchase.product.stockMode === "UNLIMITED") {
+      const approvedManual = await tx.purchase.update({
+        where: { id: purchase.id },
+        data: {
+          status: "APPROVED",
+          reviewedByAdminId: adminUserId,
+          reviewedAt: new Date(),
+          adminNote: "Manual fulfillment required",
+        },
+      });
+
+      return {
+        purchase: approvedManual,
+        user: purchase.user,
+        product: purchase.product,
+        approved: true,
+        manual: true,
+        keys: [] as string[],
+        reason: null as string | null,
+      };
+    }
+
     const keys = await tx.vpnKey.findMany({
       where: {
         productId: purchase.productId,
@@ -789,6 +906,7 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
       user: purchase.user,
       product: purchase.product,
       approved: true,
+      manual: false,
       keys: keys.map((k) => k.keyValue),
       reason: null as string | null,
     };
@@ -881,7 +999,12 @@ bot.callbackQuery("buy:cancel", async (ctx) => {
 
 bot.callbackQuery("main:buyvpn", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await sendProductList(ctx);
+  await respondMenu(ctx, "Vpn Keys", vpnRootKeyboard());
+});
+
+bot.callbackQuery("vpn:child:all_sim_wifi", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendProductList(ctx, PRODUCT_SUBCATEGORY_ALL_SIM_WIFI);
 });
 
 bot.callbackQuery(/^prod:(\d+)$/, async (ctx) => {
@@ -956,6 +1079,30 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
     }
 
     await clearSession(user.id);
+
+    if (result.manual) {
+      await ctx.reply(
+        [
+          "Purchase Successful",
+          "",
+          `Product: ${product.name}`,
+          `Quantity: ${quantity}`,
+          `Total Paid: ${formatKs(result.totalCost)}`,
+          `Remaining Balance: ${formatKs(result.newBalance)}`,
+          "",
+          "Your order requires manual delivery. Admin will send your key soon.",
+        ].join("\n"),
+      );
+
+      await notifyAdminsManualWalletPurchase(
+        result.purchaseId,
+        user,
+        product.name,
+        quantity,
+        result.totalCost,
+      );
+      return;
+    }
 
     await ctx.reply(
       [
@@ -1070,9 +1217,16 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
   }
 
   if (result.approved) {
-    await bot.api.sendMessage(
-      result.user.telegramId.toString(),
-      [
+    const message = result.manual
+      ? [
+        "Payment Confirmed",
+        "",
+        `Product: ${result.product.name}`,
+        `Quantity: ${result.purchase.quantity}`,
+        "",
+        "Your order requires manual key delivery. Admin will send it soon.",
+      ].join("\n")
+      : [
         "Payment Confirmed",
         "",
         `Product: ${result.product.name}`,
@@ -1080,8 +1234,8 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
         "",
         "Keys:",
         ...result.keys.map((key, index) => `${index + 1}. ${key}`),
-      ].join("\n"),
-    );
+      ].join("\n");
+    await bot.api.sendMessage(result.user.telegramId.toString(), message);
     await ctx.answerCallbackQuery({ text: "Purchase approved" });
     await ctx.reply(`Purchase #${id} approved.`);
     return;

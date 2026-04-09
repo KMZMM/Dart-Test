@@ -136,12 +136,77 @@ $envs = @(
     scope = "RUN_TIME"
     type = "GENERAL"
     value = $(if ($env:PAYMENT_ACCOUNT_NAME) { $env:PAYMENT_ACCOUNT_NAME } else { "Ye Htut Naing" })
+  },
+  @{
+    key = "GUIDE_TOPUP_VIDEO_URL"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:GUIDE_TOPUP_VIDEO_URL) { $env:GUIDE_TOPUP_VIDEO_URL } else { "" })
+  },
+  @{
+    key = "GUIDE_BUY_VIDEO_URL"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:GUIDE_BUY_VIDEO_URL) { $env:GUIDE_BUY_VIDEO_URL } else { "" })
+  },
+  @{
+    key = "ADMIN_PANEL_USERNAME"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:ADMIN_PANEL_USERNAME) { $env:ADMIN_PANEL_USERNAME } else { "YeHtut" })
+  },
+  @{
+    key = "ADMIN_PANEL_PASSWORD"
+    scope = "RUN_TIME"
+    type = "SECRET"
+    value = $(if ($env:ADMIN_PANEL_PASSWORD) { $env:ADMIN_PANEL_PASSWORD } else { "KMZgaming" })
+  },
+  @{
+    key = "ADMIN_SESSION_SECRET"
+    scope = "RUN_TIME"
+    type = "SECRET"
+    value = $(if ($env:ADMIN_SESSION_SECRET) { $env:ADMIN_SESSION_SECRET } else { "techstore-admin-session" })
+  },
+  @{
+    key = "OUTLINE_API_URL"
+    scope = "RUN_TIME"
+    type = "SECRET"
+    value = $(if ($env:OUTLINE_API_URL) { $env:OUTLINE_API_URL } else { "https://159.223.55.193:64519/g0VqaB01yZcs90cUB1jcTg" })
+  },
+  @{
+    key = "OUTLINE_INSECURE_TLS"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:OUTLINE_INSECURE_TLS) { $env:OUTLINE_INSECURE_TLS } else { "true" })
   }
 )
 
 $spec = @{
   name   = $AppName
   region = $Region
+  services = @(
+    @{
+      name               = "admin-web"
+      environment_slug   = "node-js"
+      github             = @{
+        repo = $GithubRepo
+        branch = $GithubBranch
+        deploy_on_push = [bool]$DeployOnPush
+      }
+      source_dir         = "/"
+      http_port          = 8080
+      instance_count     = 1
+      instance_size_slug = "apps-s-1vcpu-0.5gb"
+      routes             = @(
+        @{
+          path = "/"
+        }
+      )
+      build_command      = "npm ci && npx prisma generate && npm run build"
+      run_command        = "npx prisma db push && npm run start:web"
+      envs               = $envs
+    }
+  )
   workers = @(
     @{
       name               = "bot-worker"

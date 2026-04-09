@@ -26,6 +26,16 @@ enum VpnKeyStatus {
   SOLD
 }
 
+enum ProductProvider {
+  INTERNAL
+  OUTLINE
+}
+
+enum StockMode {
+  FINITE
+  UNLIMITED
+}
+
 enum SessionStep {
   NONE
   TOPUP_ENTER_AMOUNT
@@ -76,6 +86,11 @@ model Product {
   dataCap   String
   duration  String
   price     Int
+  category  String   @default("VPN_KEYS")
+  subCategory String @default("DEFAULT")
+  provider  ProductProvider @default(INTERNAL)
+  stockMode StockMode @default(FINITE)
+  autoFulfill Boolean @default(true)
   notes     String   @default("")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
