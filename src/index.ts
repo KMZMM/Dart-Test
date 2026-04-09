@@ -167,14 +167,7 @@ function adminPurchaseKeyboard(purchaseId: number): InlineKeyboard {
 }
 
 function buildMainMenuText(user: User): string {
-  const bar = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
-  return [
-    bar,
-    `Hi, ${displayName(user)}`,
-    `ID: ${user.telegramId.toString()}`,
-    `Balance: ${formatKs(user.balance)}`,
-    bar,
-  ].join("\n");
+  return `Hi, ${displayName(user)}\nID: ${user.telegramId.toString()}\nBalance: ${formatKs(user.balance)}`;
 }
 
 async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboard): Promise<void> {
