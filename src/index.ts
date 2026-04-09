@@ -1160,21 +1160,46 @@ bot.catch(async (err) => {
   }
 });
 
-async function bootstrap() {
-  await prisma.$connect();
-
-  await bot.api.setMyCommands([
-    { command: "start", description: "Open main menu" },
-    { command: "menu", description: "Show main menu" },
-    { command: "myid", description: "Show your Telegram ID" },
-  ]);
-
-  await bot.start();
-  console.log("TechStore bot is running.");
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-bootstrap().catch(async (error) => {
-  console.error("Failed to start bot:", error);
-  await prisma.$disconnect();
-  process.exit(1);
-});
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
+async function bootstrapWithRetry() {
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      await prisma.$connect();
+
+      await bot.api.setMyCommands([
+        { command: "start", description: "Open main menu" },
+        { command: "menu", description: "Show main menu" },
+        { command: "myid", description: "Show your Telegram ID" },
+      ]);
+
+      console.log("Starting TechStore bot polling...");
+      await bot.start();
+      return;
+    } catch (error) {
+      const message = formatError(error);
+      const delayMs = Math.min(60000, 5000 * attempt);
+      console.error(`Bot start attempt ${attempt} failed: ${message}`);
+      console.error(`Retrying in ${Math.floor(delayMs / 1000)}s...`);
+      try {
+        await prisma.$disconnect();
+      } catch {
+        // Ignore disconnect errors during retries.
+      }
+      await sleep(delayMs);
+    }
+  }
+}
+
+void bootstrapWithRetry();

@@ -17,6 +17,7 @@ function parseAdminIds(raw: string | undefined): bigint[] {
   return raw
     .split(",")
     .map((part) => part.trim())
+    .filter((id) => /^\d+$/.test(id))
     .filter(Boolean)
     .map((id) => BigInt(id));
 }
