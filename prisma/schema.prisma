@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PaymentMethod {
+  WALLET
+  KBZ_PAY
+  WAVE_PAY
+  UAB_PAY
+  AYA_PAY
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VpnKeyStatus {
+  AVAILABLE
+  SOLD
+}
+
+enum SessionStep {
+  NONE
+  TOPUP_ENTER_AMOUNT
+  TOPUP_WAIT_SCREENSHOT
+  BUY_ENTER_QUANTITY
+  BUY_WAIT_SCREENSHOT
+}
+
+enum WalletTransactionType {
+  TOPUP_CREDIT
+  PURCHASE_DEBIT
+  ADMIN_ADJUSTMENT
+}
+
+model User {
+  id                Int                 @id @default(autoincrement())
+  telegramId        BigInt              @unique
+  username          String?
+  firstName         String
+  lastName          String?
+  balance           Int                 @default(0)
+  isAdmin           Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  session           UserSession?
+  topupRequests     TopUpRequest[]
+  purchases         Purchase[]
+  soldVpnKeys       VpnKey[]            @relation("SoldToUser")
+  walletTransactions WalletTransaction[]
+  reviewedTopups    TopUpRequest[]      @relation("TopUpReviewedBy")
+  reviewedPurchases Purchase[]          @relation("PurchaseReviewedBy")
+}
+
+model UserSession {
+  id        Int         @id @default(autoincrement())
+  userId    Int         @unique
+  step      SessionStep @default(NONE)
+  data      Json?
+  updatedAt DateTime    @updatedAt
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Product {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  server    String
+  dataCap   String
+  duration  String
+  price     Int
+  notes     String   @default("")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  vpnKeys   VpnKey[]
+  purchases Purchase[]
+}
+
+model VpnKey {
+  id               Int         @id @default(autoincrement())
+  productId        Int
+  keyValue         String      @unique
+  status           VpnKeyStatus @default(AVAILABLE)
+  soldAt           DateTime?
+  soldToUserId     Int?
+  soldToPurchaseId Int?
+  createdAt        DateTime    @default(now())
+  product          Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  soldToUser       User?       @relation("SoldToUser", fields: [soldToUserId], references: [id])
+  soldToPurchase   Purchase?   @relation("PurchaseKeys", fields: [soldToPurchaseId], references: [id])
+
+  @@index([productId, status])
+}
+
+model TopUpRequest {
+  id               Int                 @id @default(autoincrement())
+  userId           Int
+  amount           Int
+  paymentMethod    PaymentMethod
+  status           RequestStatus       @default(PENDING)
+  screenshotFileId String?
+  reviewedByAdminId Int?
+  reviewedAt       DateTime?
+  adminNote        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedByAdmin  User?               @relation("TopUpReviewedBy", fields: [reviewedByAdminId], references: [id])
+  walletTransaction WalletTransaction?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Purchase {
+  id               Int                 @id @default(autoincrement())
+  userId           Int
+  productId        Int
+  quantity         Int
+  unitPrice        Int
+  totalCost        Int
+  paymentMethod    PaymentMethod
+  status           RequestStatus       @default(PENDING)
+  screenshotFileId String?
+  reviewedByAdminId Int?
+  reviewedAt       DateTime?
+  adminNote        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product          Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reviewedByAdmin  User?               @relation("PurchaseReviewedBy", fields: [reviewedByAdminId], references: [id])
+  vpnKeys          VpnKey[]            @relation("PurchaseKeys")
+  walletTransaction WalletTransaction?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model WalletTransaction {
+  id            Int                   @id @default(autoincrement())
+  userId        Int
+  type          WalletTransactionType
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  description   String?
+  topUpRequestId Int?                 @unique
+  purchaseId    Int?                  @unique
+  createdAt     DateTime              @default(now())
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpRequest  TopUpRequest?         @relation(fields: [topUpRequestId], references: [id], onDelete: SetNull)
+  purchase      Purchase?             @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}

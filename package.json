@@ -1,0 +1,33 @@
+{
+  "name": "techstore",
+  "version": "1.0.0",
+  "description": "Telegram bot for TechStore with wallet, top-up approvals, and VPN key delivery",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:push": "prisma db push",
+    "seed": "tsx src/scripts/seed.ts",
+    "import:keys": "tsx src/scripts/import-keys.ts",
+    "provision:do": "powershell -ExecutionPolicy Bypass -File scripts/provision-do.ps1",
+    "deploy:do": "powershell -ExecutionPolicy Bypass -File scripts/deploy-app.ps1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "prisma": "^6.15.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.15.0",
+    "dotenv": "^17.4.1",
+    "grammy": "^1.42.0"
+  }
+}
