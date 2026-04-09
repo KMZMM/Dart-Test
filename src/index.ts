@@ -333,7 +333,8 @@ async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<vo
 }
 
 async function notifyAdminsTopup(topupId: number, user: User, amount: number, paymentMethod: PaymentMethod, fileId: string) {
-  if (!config.adminIds.length) {
+  const adminIds = await resolveAdminTelegramIds();
+  if (!adminIds.length) {
     return false;
   }
 
@@ -347,7 +348,7 @@ async function notifyAdminsTopup(topupId: number, user: User, amount: number, pa
   ].join("\n");
 
   await Promise.all(
-    config.adminIds.map(async (adminId) => {
+    adminIds.map(async (adminId) => {
       await bot.api.sendPhoto(adminId.toString(), fileId, {
         caption,
         reply_markup: adminTopupKeyboard(topupId),
@@ -366,7 +367,8 @@ async function notifyAdminsPurchase(
   paymentMethod: PaymentMethod,
   fileId: string,
 ) {
-  if (!config.adminIds.length) {
+  const adminIds = await resolveAdminTelegramIds();
+  if (!adminIds.length) {
     return false;
   }
 
@@ -382,7 +384,7 @@ async function notifyAdminsPurchase(
   ].join("\n");
 
   await Promise.all(
-    config.adminIds.map(async (adminId) => {
+    adminIds.map(async (adminId) => {
       await bot.api.sendPhoto(adminId.toString(), fileId, {
         caption,
         reply_markup: adminPurchaseKeyboard(purchaseId),
@@ -390,6 +392,20 @@ async function notifyAdminsPurchase(
     }),
   );
   return true;
+}
+
+async function resolveAdminTelegramIds(): Promise<bigint[]> {
+  const ids = new Set<string>(config.adminIds.map((id) => id.toString()));
+  const dbAdmins = await prisma.user.findMany({
+    where: { isAdmin: true },
+    select: { telegramId: true },
+  });
+
+  for (const admin of dbAdmins) {
+    ids.add(admin.telegramId.toString());
+  }
+
+  return Array.from(ids, (id) => BigInt(id));
 }
 
 async function sendProductList(ctx: BotContext): Promise<void> {
