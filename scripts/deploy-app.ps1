@@ -155,7 +155,7 @@ $spec = @{
       instance_count     = 1
       instance_size_slug = "apps-s-1vcpu-0.5gb"
       build_command      = "npm ci && npx prisma generate && npm run build"
-      run_command        = "npx prisma migrate deploy && npm run seed && npm run start"
+      run_command        = "npx prisma db push && npm run seed && npm run start"
       envs               = $envs
     }
   )
