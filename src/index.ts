@@ -94,12 +94,12 @@ function boldText(text: string): string {
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🛍 Buy VPN Key", callback_data: "main:buyvpn", style: "primary" }],
+      [{ text: "🛍 Buy VPN Key", callback_data: "main:buyvpn" }],
       [
-        { text: "🧾 Transaction History", callback_data: "main:history", style: "primary" },
-        { text: "🟣 Guide", callback_data: "main:guide", style: "primary" },
+        { text: "🧾 Transaction History", callback_data: "main:history" },
+        { text: "🟣 Guide", callback_data: "main:guide" },
       ],
-      [{ text: "🟢 Join Channel", url: config.channelLink, style: "success" }],
+      [{ text: "🟢 Join Channel", url: config.channelLink }],
       [{ text: "🟢 Top Up", callback_data: "main:topup", style: "success" }],
     ],
   } as any;
@@ -108,12 +108,12 @@ function mainMenuKeyboard() {
 function topUpMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY", style: "primary" }],
-      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", style: "primary" }],
-      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", style: "primary" }],
-      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", style: "primary" }],
-      [{ text: "Top-Up History", callback_data: "topup:history", style: "primary" }],
-      [{ text: "⬅️ Back", callback_data: "main:menu", style: "default" }],
+      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY" }],
+      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY" }],
+      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY" }],
+      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY" }],
+      [{ text: "Top-Up History", callback_data: "topup:history" }],
+      [{ text: "⬅️ Back", callback_data: "main:menu" }],
     ],
   } as any;
 }
@@ -1238,7 +1238,7 @@ bot.on("message:photo", async (ctx) => {
       `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
       "Status: Pending Approval",
     ].join("\n");
-    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textProcessing, { inline_keyboard: [[{ text: "⬅️ Main Menu", callback_data: "main:menu", style: "primary" }]] }))) {
+    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textProcessing, { inline_keyboard: [[{ text: "⬅️ Main Menu", callback_data: "main:menu" }]] }))) {
       await respondMenu(ctx, textProcessing, new InlineKeyboard().text("⬅️ Main Menu", "main:menu"));
     }
 
