@@ -694,6 +694,7 @@ async function reviewPurchase(purchaseId: number, adminUserId: number, approve: 
 }
 
 bot.use(async (ctx, next) => {
+  ctx.state = (ctx.state ?? {}) as BotContext["state"];
   if (ctx.from) {
     ctx.state.dbUser = await upsertUser(ctx.from);
   }
