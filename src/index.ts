@@ -8,11 +8,13 @@ type BotContext = Context & { state: { dbUser?: User } };
 
 type TopUpAmountSessionData = {
   paymentMethod: PaymentMethod;
+  uiMessageId?: number;
 };
 
 type TopUpScreenshotSessionData = {
   paymentMethod: PaymentMethod;
   amount: number;
+  uiMessageId?: number;
 };
 
 type BuyQuantitySessionData = {
@@ -89,39 +91,43 @@ function boldText(text: string): string {
   return `<b>${escapeHtml(text)}</b>`;
 }
 
-function mainMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("🛍 Buy VPN Key", "main:buyvpn")
-    .row()
-    .text("🧾 Transaction History", "main:history")
-    .text("🟣 Guide", "main:guide")
-    .row()
-    .url("🟢 Join Channel", config.channelLink)
-    .row()
-    .text("🟢 Top Up", "main:topup");
+function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🛍 Buy VPN Key", callback_data: "main:buyvpn", style: "primary" }],
+      [
+        { text: "🧾 Transaction History", callback_data: "main:history", style: "primary" },
+        { text: "🟣 Guide", callback_data: "main:guide", style: "primary" },
+      ],
+      [{ text: "🟢 Join Channel", url: config.channelLink, style: "success" }],
+      [{ text: "🟢 Top Up", callback_data: "main:topup", style: "success" }],
+    ],
+  } as any;
 }
 
-function topUpMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("🟢 KBZ Pay", "topup:method:KBZ_PAY")
-    .row()
-    .text("🟡 Wave Pay", "topup:method:WAVE_PAY")
-    .row()
-    .text("🔵 UAB Pay", "topup:method:UAB_PAY")
-    .row()
-    .text("🟣 AYA Pay", "topup:method:AYA_PAY")
-    .row()
-    .text("🧾 Top-Up History", "topup:history")
-    .row()
-    .text("⬅️ Back", "main:menu");
+function topUpMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY", style: "primary" }],
+      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", style: "primary" }],
+      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", style: "primary" }],
+      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", style: "primary" }],
+      [{ text: "Top-Up History", callback_data: "topup:history", style: "primary" }],
+      [{ text: "⬅️ Back", callback_data: "main:menu", style: "default" }],
+    ],
+  } as any;
 }
 
-function topUpCancelKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("🔴 Cancel", "topup:cancel");
+function topUpCancelKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "Cancel", callback_data: "topup:cancel", style: "danger" }]],
+  } as any;
 }
 
-function buyCancelKeyboard(): InlineKeyboard {
-  return new InlineKeyboard().text("🔴 Cancel", "buy:cancel");
+function buyCancelKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "Cancel", callback_data: "buy:cancel", style: "danger" }]],
+  } as any;
 }
 
 function guideMenuKeyboard(): InlineKeyboard {
@@ -170,7 +176,7 @@ function buildMainMenuText(user: User): string {
   return `Hi, ${displayName(user)}\nID: ${user.telegramId.toString()}\nBalance: ${formatKs(user.balance)}`;
 }
 
-async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboard): Promise<void> {
+async function respondMenu(ctx: BotContext, text: string, keyboard: any): Promise<void> {
   const htmlText = boldText(text);
   const chatId = ctx.chat?.id;
   if (ctx.callbackQuery?.message) {
@@ -199,6 +205,28 @@ async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboa
   const sent = await ctx.reply(htmlText, { reply_markup: keyboard, parse_mode: "HTML" });
   if (chatId) {
     uiMessageByChat.set(chatId, sent.message_id);
+  }
+}
+
+async function editKnownUiMessage(
+  ctx: BotContext,
+  messageId: number | undefined,
+  text: string,
+  keyboard: any,
+): Promise<boolean> {
+  const chatId = ctx.chat?.id;
+  if (!chatId || !messageId) {
+    return false;
+  }
+  try {
+    await ctx.api.editMessageText(chatId, messageId, boldText(text), {
+      reply_markup: keyboard,
+      parse_mode: "HTML",
+    });
+    uiMessageByChat.set(chatId, messageId);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -810,7 +838,8 @@ bot.callbackQuery(/^topup:method:(KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY)$/, async (ct
   if (!user) return;
   await ctx.answerCallbackQuery();
   const method = ctx.match[1] as PaymentMethod;
-  await setSession(user.id, "TOPUP_ENTER_AMOUNT", { paymentMethod: method });
+  const uiMessageId = ctx.callbackQuery.message?.message_id;
+  await setSession(user.id, "TOPUP_ENTER_AMOUNT", { paymentMethod: method, uiMessageId });
   await respondMenu(
     ctx,
     [
@@ -1090,21 +1119,19 @@ bot.on("message:text", async (ctx) => {
     const amount = parsePositiveInt(text);
     if (!amount) {
       await cleanupIncomingMessage(ctx);
-      await respondMenu(
-        ctx,
-        `Please enter a valid amount in MMK (minimum ${formatKs(MIN_TOPUP_AMOUNT)}).`,
-        topUpCancelKeyboard(),
-      );
+      const textInvalid = `Please enter a valid amount in MMK (minimum ${formatKs(MIN_TOPUP_AMOUNT)}).`;
+      if (!(await editKnownUiMessage(ctx, data.uiMessageId, textInvalid, topUpCancelKeyboard()))) {
+        await respondMenu(ctx, textInvalid, topUpCancelKeyboard());
+      }
       return;
     }
 
     if (amount < MIN_TOPUP_AMOUNT) {
       await cleanupIncomingMessage(ctx);
-      await respondMenu(
-        ctx,
-        `Minimum top-up amount is ${formatKs(MIN_TOPUP_AMOUNT)}.\nPlease enter a higher amount.`,
-        topUpCancelKeyboard(),
-      );
+      const textMin = `Minimum top-up amount is ${formatKs(MIN_TOPUP_AMOUNT)}.\nPlease enter a higher amount.`;
+      if (!(await editKnownUiMessage(ctx, data.uiMessageId, textMin, topUpCancelKeyboard()))) {
+        await respondMenu(ctx, textMin, topUpCancelKeyboard());
+      }
       return;
     }
 
@@ -1113,23 +1140,23 @@ bot.on("message:text", async (ctx) => {
     const nextData: TopUpScreenshotSessionData = {
       paymentMethod: data.paymentMethod,
       amount,
+      uiMessageId: data.uiMessageId,
     };
     await setSession(user.id, "TOPUP_WAIT_SCREENSHOT", nextData as unknown as Prisma.InputJsonValue);
 
-    await respondMenu(
-      ctx,
-      [
-        "Please transfer the amount to the following account:",
-        "",
-        `Phone: ${config.paymentPhone}`,
-        `Account Name: ${config.paymentAccountName}`,
-        "",
-        `Amount: ${formatKs(amount)}`,
-        "",
-        "After completing the transfer, send your transaction screenshot here.",
-      ].join("\n"),
-      topUpCancelKeyboard(),
-    );
+    const textTransfer = [
+      "Please transfer the amount to the following account:",
+      "",
+      `Phone: ${config.paymentPhone}`,
+      `Account Name: ${config.paymentAccountName}`,
+      "",
+      `Amount: ${formatKs(amount)}`,
+      "",
+      "After completing the transfer, send your transaction screenshot here.",
+    ].join("\n");
+    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textTransfer, topUpCancelKeyboard()))) {
+      await respondMenu(ctx, textTransfer, topUpCancelKeyboard());
+    }
     return;
   }
 
@@ -1204,17 +1231,16 @@ bot.on("message:photo", async (ctx) => {
     await clearSession(user.id);
     await cleanupIncomingMessage(ctx);
 
-    await respondMenu(
-      ctx,
-      [
-        "Payment is being processed.",
-        "",
-        `Amount: ${formatKs(data.amount)}`,
-        `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
-        "Status: Pending Approval",
-      ].join("\n"),
-      new InlineKeyboard().text("⬅️ Main Menu", "main:menu"),
-    );
+    const textProcessing = [
+      "Payment is being processed.",
+      "",
+      `Amount: ${formatKs(data.amount)}`,
+      `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
+      "Status: Pending Approval",
+    ].join("\n");
+    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textProcessing, { inline_keyboard: [[{ text: "⬅️ Main Menu", callback_data: "main:menu", style: "primary" }]] }))) {
+      await respondMenu(ctx, textProcessing, new InlineKeyboard().text("⬅️ Main Menu", "main:menu"));
+    }
 
     const adminNotified = await notifyAdminsTopup(
       request.id,
