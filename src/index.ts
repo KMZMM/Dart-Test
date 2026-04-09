@@ -522,7 +522,7 @@ async function sendProductList(ctx: BotContext): Promise<void> {
   const keyboard = new InlineKeyboard();
   for (const product of products) {
     const stock = stockByProduct.get(product.id) ?? 0;
-    keyboard.text(`${product.name} (${stock}) | ${formatKs(product.price)}/month`, `prod:${product.id}`);
+    keyboard.text(`${product.name} | (${stock}) | ${formatKs(product.price)}/month`, `prod:${product.id}`);
     keyboard.row();
   }
   keyboard.text("⬅️ Back", "main:menu");
