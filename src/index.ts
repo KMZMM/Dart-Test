@@ -78,14 +78,23 @@ function formatDate(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 16);
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function boldText(text: string): string {
+  return `<b>${escapeHtml(text)}</b>`;
+}
+
 function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text("🛍 Buy VPN Key", "main:buyvpn")
     .text("🟢 Top Up", "main:topup")
     .row()
-    .text("🔵 Buy VPN Key", "main:buyvpn")
-    .row()
-    .text("🟠 Transaction History", "main:history")
-    .row()
+    .text("🧾 Transaction History", "main:history")
     .text("🟣 Guide", "main:guide")
     .row()
     .url("🟢 Join Channel", config.channelLink);
@@ -161,10 +170,11 @@ function buildMainMenuText(user: User): string {
 }
 
 async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboard): Promise<void> {
+  const htmlText = boldText(text);
   const chatId = ctx.chat?.id;
   if (ctx.callbackQuery?.message) {
     try {
-      await ctx.editMessageText(text, { reply_markup: keyboard });
+      await ctx.editMessageText(htmlText, { reply_markup: keyboard, parse_mode: "HTML" });
       if (chatId) {
         uiMessageByChat.set(chatId, ctx.callbackQuery.message.message_id);
       }
@@ -177,7 +187,7 @@ async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboa
     const previousMessageId = uiMessageByChat.get(chatId);
     if (previousMessageId) {
       try {
-        await ctx.api.editMessageText(chatId, previousMessageId, text, { reply_markup: keyboard });
+        await ctx.api.editMessageText(chatId, previousMessageId, htmlText, { reply_markup: keyboard, parse_mode: "HTML" });
         return;
       } catch {
         // Ignore and fallback to sending a new message.
@@ -185,7 +195,7 @@ async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboa
     }
   }
 
-  const sent = await ctx.reply(text, { reply_markup: keyboard });
+  const sent = await ctx.reply(htmlText, { reply_markup: keyboard, parse_mode: "HTML" });
   if (chatId) {
     uiMessageByChat.set(chatId, sent.message_id);
   }
@@ -466,10 +476,16 @@ async function sendProductList(ctx: BotContext): Promise<void> {
   }
 
   const keyboard = new InlineKeyboard();
-  for (const product of products) {
-    keyboard.text(`${product.name} | ${formatKs(product.price)}/month`, `prod:${product.id}`).row();
+  for (let i = 0; i < products.length; i += 2) {
+    const left = products[i];
+    const right = products[i + 1];
+    keyboard.text(`${left.name} | ${formatKs(left.price)}/month`, `prod:${left.id}`);
+    if (right) {
+      keyboard.text(`${right.name} | ${formatKs(right.price)}/month`, `prod:${right.id}`);
+    }
+    keyboard.row();
   }
-  keyboard.text("Back", "main:menu");
+  keyboard.text("⬅️ Back", "main:menu");
 
   await respondMenu(ctx, "Hi, please choose a product:", keyboard);
 }
