@@ -92,12 +92,13 @@ function boldText(text: string): string {
 function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🛍 Buy VPN Key", "main:buyvpn")
-    .text("🟢 Top Up", "main:topup")
     .row()
     .text("🧾 Transaction History", "main:history")
     .text("🟣 Guide", "main:guide")
     .row()
-    .url("🟢 Join Channel", config.channelLink);
+    .url("🟢 Join Channel", config.channelLink)
+    .row()
+    .text("🟢 Top Up", "main:topup");
 }
 
 function topUpMenuKeyboard(): InlineKeyboard {
@@ -166,7 +167,14 @@ function adminPurchaseKeyboard(purchaseId: number): InlineKeyboard {
 }
 
 function buildMainMenuText(user: User): string {
-  return `Hi, ${displayName(user)}\nID: ${user.telegramId.toString()}\nBalance: ${formatKs(user.balance)}`;
+  const bar = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
+  return [
+    bar,
+    `Hi, ${displayName(user)}`,
+    `ID: ${user.telegramId.toString()}`,
+    `Balance: ${formatKs(user.balance)}`,
+    bar,
+  ].join("\n");
 }
 
 async function respondMenu(ctx: BotContext, text: string, keyboard: InlineKeyboard): Promise<void> {
