@@ -102,6 +102,12 @@ $envs = @(
     value = $env:ADMIN_TELEGRAM_IDS
   },
   @{
+    key = "ADMIN_USERNAMES"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:ADMIN_USERNAMES) { $env:ADMIN_USERNAMES } else { "y_e_h_t_u_t" })
+  },
+  @{
     key = "JOIN_CHANNEL_LINK"
     scope = "RUN_TIME"
     type = "GENERAL"
