@@ -1,7 +1,8 @@
 import dotenv from "dotenv";
 import { prisma } from "../prisma";
 
-dotenv.config({ override: true });
+const shouldOverrideEnv = process.env.DOTENV_OVERRIDE !== "false";
+dotenv.config({ override: shouldOverrideEnv });
 
 async function main() {
   const products = [

@@ -4,7 +4,8 @@ Param(
   [string]$GithubRepo = $env:DO_GITHUB_REPO,
   [string]$GithubBranch = $(if ($env:DO_GITHUB_BRANCH) { $env:DO_GITHUB_BRANCH } else { "main" }),
   [bool]$DeployOnPush = $true,
-  [bool]$UseGeneratedDatabaseUrl = $true
+  [bool]$UseGeneratedDatabaseUrl = $true,
+  [bool]$UseAppManagedDatabase = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,7 +59,7 @@ if ($UseGeneratedDatabaseUrl -and (Test-Path $generatedEnvFile)) {
   }
 }
 
-if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
+if (-not $UseAppManagedDatabase -and [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
   throw "DATABASE_URL is required. Run npm run provision:do first or set DATABASE_URL manually."
 }
 
@@ -82,6 +83,22 @@ function Invoke-DoRequest {
   return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers
 }
 
+$databaseEnv = if ($UseAppManagedDatabase) {
+  @{
+    key = "DATABASE_URL"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = '${db.DATABASE_URL}'
+  }
+} else {
+  @{
+    key = "DATABASE_URL"
+    scope = "RUN_TIME"
+    type = "SECRET"
+    value = $env:DATABASE_URL
+  }
+}
+
 $envs = @(
   @{
     key = "TELEGRAM_BOT_TOKEN"
@@ -89,12 +106,7 @@ $envs = @(
     type = "SECRET"
     value = $env:TELEGRAM_BOT_TOKEN
   },
-  @{
-    key = "DATABASE_URL"
-    scope = "RUN_TIME"
-    type = "SECRET"
-    value = $env:DATABASE_URL
-  },
+  $databaseEnv,
   @{
     key = "ADMIN_TELEGRAM_IDS"
     scope = "RUN_TIME"
@@ -143,8 +155,18 @@ $spec = @{
       instance_count     = 1
       instance_size_slug = "apps-s-1vcpu-0.5gb"
       build_command      = "npm ci && npx prisma generate && npm run build"
-      run_command        = "npx prisma migrate deploy && npm run seed && npm run start"
+      run_command        = "npm run start"
       envs               = $envs
+    }
+  )
+}
+
+if ($UseAppManagedDatabase) {
+  $spec["databases"] = @(
+    @{
+      engine = "PG"
+      name = "db"
+      version = "16"
     }
   )
 }

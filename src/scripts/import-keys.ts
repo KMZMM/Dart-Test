@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { prisma } from "../prisma";
 
-dotenv.config({ override: true });
+const shouldOverrideEnv = process.env.DOTENV_OVERRIDE !== "false";
+dotenv.config({ override: shouldOverrideEnv });
 
 function getArg(name: string): string | undefined {
   const entry = process.argv.find((arg) => arg.startsWith(`${name}=`));

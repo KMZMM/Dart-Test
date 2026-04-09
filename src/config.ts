@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 
-dotenv.config({ override: true });
+const shouldOverrideEnv = process.env.DOTENV_OVERRIDE !== "false";
+dotenv.config({ override: shouldOverrideEnv });
 
 function requireEnv(name: string): string {
   const value = process.env[name];
