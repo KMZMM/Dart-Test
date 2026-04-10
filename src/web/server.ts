@@ -73,9 +73,8 @@ function renderLayout(title: string, body: string): string {
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .tabs a { display:inline-block; margin-right:8px; padding:8px 12px; border-radius:8px; text-decoration:none; background:#e9edf5; color:#24324a; }
     .tabs a.active { background:#1a73e8; color:#fff; }
-    input, textarea, button { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
-    input, textarea { min-width: 180px; }
-    textarea { min-height: 100px; width: 100%; resize: vertical; }
+    input, button { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
+    input { min-width: 180px; }
     button { cursor: pointer; }
     .btn { background: #1a73e8; color: #fff; border: none; }
     .btn-danger { background: #cf2338; color: #fff; border: none; }
@@ -84,7 +83,6 @@ function renderLayout(title: string, body: string): string {
     th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
     .muted { color: #5d6575; font-size: 13px; }
     code { font-size: 12px; }
-    .stack { display: grid; gap: 10px; }
   </style>
 </head>
 <body>
@@ -138,83 +136,29 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
     })
     : [];
 
-  const keys = itemProductIds.length
-    ? await prisma.vpnKey.findMany({
-      where: {
-        productId: { in: itemProductIds },
-        status: VpnKeyStatus.AVAILABLE,
-      },
-      select: {
-        id: true,
-        productId: true,
-        keyValue: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 300,
-    })
-    : [];
-
   const availableByProduct = new Map<number, number>(availableCounts.map((row) => [row.productId, row._count._all]));
-  const keysByProduct = new Map<number, Array<{ id: number; keyValue: string; createdAt: Date }>>();
-  for (const key of keys) {
-    const existing = keysByProduct.get(key.productId) || [];
-    existing.push({ id: key.id, keyValue: key.keyValue, createdAt: key.createdAt });
-    keysByProduct.set(key.productId, existing);
-  }
-
-  const itemBlocks = group.products
+  const itemRows = group.products
     .sort((a, b) => a.price - b.price)
     .map((product) => {
       const manualAvailableCount = availableByProduct.get(product.id) ?? 0;
       const availableCount = product.stockMode === StockMode.UNLIMITED
         ? `Infinity (manual list: ${manualAvailableCount})`
         : String(manualAvailableCount);
-      const listRows = (keysByProduct.get(product.id) || [])
-        .slice(0, 20)
-        .map((key) => `
-          <tr>
-            <td><code style="white-space:pre-wrap;word-break:break-all;">${escapeHtml(key.keyValue)}</code></td>
-            <td>${key.createdAt.toISOString().slice(0, 10)}</td>
-            <td>
-              <form method="post" action="/admin/keys/remove">
-                <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
-                <input type="hidden" name="keyId" value="${key.id}" />
-                <button class="btn-danger" type="submit">Remove</button>
-              </form>
-            </td>
-          </tr>
-        `)
-        .join("");
-
-      const keyListSection = `
-        <div class="stack">
-          <h3>Key List</h3>
-          <form method="post" action="/admin/keys/add" class="stack">
-            <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
-            <input type="hidden" name="productId" value="${product.id}" />
-            <textarea name="keyValues" placeholder="Paste key(s), one per line" required></textarea>
-            <div class="row"><button class="btn" type="submit">Add Key(s)</button></div>
-          </form>
-          <table>
-            <thead><tr><th>Key</th><th>Created</th><th>Action</th></tr></thead>
-            <tbody>${listRows || "<tr><td colspan='3'>No available keys</td></tr>"}</tbody>
-          </table>
-          <p class="muted">Only AVAILABLE keys can be removed. Unlimited items still auto-generate on successful purchase.</p>
-        </div>
-      `;
-
       return `
-        <div class="card">
-          <h3>${escapeHtml(product.name)}</h3>
-          <p class="muted">
-            Price: ${product.price.toLocaleString("en-US")} Ks/month |
-            Provider: ${escapeHtml(product.provider)} |
-            Stock Mode: ${escapeHtml(product.stockMode)} |
-            Stock: ${escapeHtml(availableCount)}
-          </p>
-          ${keyListSection}
-        </div>
+        <tr>
+          <td>${escapeHtml(product.name)}</td>
+          <td>${product.price.toLocaleString("en-US")} Ks/month</td>
+          <td>${escapeHtml(product.provider)}</td>
+          <td>${escapeHtml(product.stockMode)}</td>
+          <td>${escapeHtml(availableCount)}</td>
+          <td>
+            <form method="post" action="/admin/items/remove">
+              <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
+              <input type="hidden" name="productId" value="${product.id}" />
+              <button class="btn-danger" type="submit" title="Remove Item">&#128465;</button>
+            </form>
+          </td>
+        </tr>
       `;
     })
     .join("");
@@ -224,7 +168,17 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
       <h2>${escapeHtml(group.title)}</h2>
       <p class="muted">This tab contains the item list for this product group.</p>
     </div>
-    ${itemBlocks || "<div class='card'><p>No items found in this product group.</p></div>"}
+    <div class="card">
+      <h3>Items</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th><th>Price</th><th>Provider</th><th>Stock Mode</th><th>Stock</th><th>Remove</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows || "<tr><td colspan='6'>No items found in this product group.</td></tr>"}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -321,23 +275,12 @@ async function main() {
     res.redirect(`/admin?${query.toString()}`);
   });
 
-  app.post("/admin/keys/add", adminOnly, async (req, res) => {
+  app.post("/admin/items/remove", adminOnly, async (req, res) => {
     const group = String(req.body.group || "").trim();
     const productId = Number(req.body.productId || 0);
-    const keyValuesRaw = String(req.body.keyValues || "");
 
     if (!Number.isInteger(productId) || productId <= 0) {
       res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Invalid%20product`);
-      return;
-    }
-
-    const values = keyValuesRaw
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-
-    if (!values.length) {
-      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=No%20keys%20provided`);
       return;
     }
 
@@ -347,40 +290,12 @@ async function main() {
       return;
     }
 
-    const inserted = await prisma.vpnKey.createMany({
-      data: values.map((keyValue) => ({
-        productId: product.id,
-        keyValue,
-        status: VpnKeyStatus.AVAILABLE,
-      })),
-      skipDuplicates: true,
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { isActive: false },
     });
 
-    res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Added%20${inserted.count}%20keys`);
-  });
-
-  app.post("/admin/keys/remove", adminOnly, async (req, res) => {
-    const group = String(req.body.group || "").trim();
-    const keyId = Number(req.body.keyId || 0);
-
-    if (!Number.isInteger(keyId) || keyId <= 0) {
-      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Invalid%20key%20id`);
-      return;
-    }
-
-    const key = await prisma.vpnKey.findUnique({ where: { id: keyId } });
-    if (!key) {
-      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Key%20not%20found`);
-      return;
-    }
-
-    if (key.status !== VpnKeyStatus.AVAILABLE) {
-      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Only%20available%20keys%20can%20be%20removed`);
-      return;
-    }
-
-    await prisma.vpnKey.delete({ where: { id: keyId } });
-    res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Key%20removed`);
+    res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Item%20removed`);
   });
 
   app.get("/health", (_req, res) => {
