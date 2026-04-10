@@ -1,9 +1,8 @@
 import dotenv from "dotenv";
 import express from "express";
 import session from "express-session";
-import { ProductProvider } from "@prisma/client";
+import { Product, StockMode, VpnKeyStatus } from "@prisma/client";
 import { prisma } from "../prisma";
-import { OutlineManagerClient } from "../services/outline";
 import { syncCatalogProducts } from "../catalog/product-codes";
 
 dotenv.config();
@@ -11,14 +10,9 @@ dotenv.config();
 const ADMIN_USERNAME = process.env.ADMIN_PANEL_USERNAME?.trim() || "YeHtut";
 const ADMIN_PASSWORD = process.env.ADMIN_PANEL_PASSWORD?.trim() || "KMZgaming";
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET?.trim() || "techstore-admin-session";
-const OUTLINE_API_URL = process.env.OUTLINE_API_URL?.trim() || "";
-const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false";
-
-type AdminTab = "products" | "outline";
-
-const outlineClient = OUTLINE_API_URL
-  ? new OutlineManagerClient(OUTLINE_API_URL, OUTLINE_INSECURE_TLS)
-  : null;
+const PRODUCT_GROUP_LABELS: Record<string, string> = {
+  ALL_SIM_WIFI_VPN_KEYS: "All Sim & Wifi Vpn Keys",
+};
 
 declare module "express-session" {
   interface SessionData {
@@ -40,11 +34,20 @@ function getFlashMessage(query: unknown): string {
   return raw ? escapeHtml(raw) : "";
 }
 
-function buildOutlineKeyName(username: string, productCode: string): string {
-  const cleanUser = username.normalize("NFKD").replace(/[^\w.-]/g, "").slice(0, 24) || "user";
-  const cleanCode = productCode.replace(/[^\w.-]/g, "").slice(0, 24) || "plan";
-  const suffix = Date.now().toString().slice(-6);
-  return `${cleanUser}-${cleanCode}-${suffix}`;
+function humanizeCode(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "Products";
+  }
+  return normalized
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function productGroupLabel(subCategory: string): string {
+  return PRODUCT_GROUP_LABELS[subCategory] || humanizeCode(subCategory);
 }
 
 function adminOnly(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -70,15 +73,18 @@ function renderLayout(title: string, body: string): string {
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .tabs a { display:inline-block; margin-right:8px; padding:8px 12px; border-radius:8px; text-decoration:none; background:#e9edf5; color:#24324a; }
     .tabs a.active { background:#1a73e8; color:#fff; }
-    input, select, button { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
-    input, select { min-width: 180px; }
+    input, textarea, button { padding: 10px; border: 1px solid #d3d8e2; border-radius: 8px; font-size: 14px; }
+    input, textarea { min-width: 180px; }
+    textarea { min-height: 100px; width: 100%; resize: vertical; }
     button { cursor: pointer; }
     .btn { background: #1a73e8; color: #fff; border: none; }
+    .btn-danger { background: #cf2338; color: #fff; border: none; }
     .btn-secondary { background: #3f4d64; color: #fff; border: none; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
     .muted { color: #5d6575; font-size: 13px; }
     code { font-size: 12px; }
+    .stack { display: grid; gap: 10px; }
   </style>
 </head>
 <body>
@@ -87,131 +93,167 @@ function renderLayout(title: string, body: string): string {
 </html>`;
 }
 
-function tabLink(tab: AdminTab, currentTab: AdminTab): string {
-  const active = tab === currentTab ? "active" : "";
-  const title = tab === "products" ? "Products List" : "Outline Keys";
-  return `<a class="${active}" href="/admin?tab=${tab}">${title}</a>`;
+type ProductGroup = {
+  key: string;
+  title: string;
+  products: Product[];
+};
+
+function tabLink(group: ProductGroup, activeGroupKey: string): string {
+  const active = group.key === activeGroupKey ? "active" : "";
+  return `<a class="${active}" href="/admin?group=${encodeURIComponent(group.key)}">${escapeHtml(group.title)}</a>`;
 }
 
-async function renderProductsTab(): Promise<string> {
-  const products = await prisma.product.findMany({
-    orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }],
-  });
+function buildProductGroups(products: Product[]): ProductGroup[] {
+  const map = new Map<string, ProductGroup>();
 
-  type ProductGroup = {
-    category: string;
-    subCategory: string;
-    itemCount: number;
-    providers: Set<string>;
-    stockModes: Set<string>;
-  };
-
-  const groups = new Map<string, ProductGroup>();
   for (const product of products) {
-    const key = `${product.category}::${product.subCategory}`;
-    const existing = groups.get(key);
+    const key = product.subCategory || "GENERAL";
+    const existing = map.get(key);
     if (existing) {
-      existing.itemCount += 1;
-      existing.providers.add(product.provider);
-      existing.stockModes.add(product.stockMode);
+      existing.products.push(product);
       continue;
     }
-    groups.set(key, {
-      category: product.category,
-      subCategory: product.subCategory,
-      itemCount: 1,
-      providers: new Set<string>([product.provider]),
-      stockModes: new Set<string>([product.stockMode]),
+    map.set(key, {
+      key,
+      title: productGroupLabel(key),
+      products: [product],
     });
   }
 
-  const rows = Array.from(groups.values())
-    .map((group) => `
-      <tr>
-        <td>${escapeHtml(group.category)}</td>
-        <td>${escapeHtml(group.subCategory)}</td>
-        <td>${group.itemCount}</td>
-        <td>${escapeHtml(Array.from(group.providers).join(", "))}</td>
-        <td>${escapeHtml(Array.from(group.stockModes).join(", "))}</td>
-      </tr>
-    `)
-    .join("");
+  return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title));
+}
 
-  return `
-    <div class="card">
-      <h2>Products List (Code-Driven)</h2>
-      <p class="muted">No manual product creation here. Products come from code catalog sync. This view shows only product groups, not item rows.</p>
-      <form method="post" action="/admin/products/sync" class="row">
-        <button class="btn" type="submit">Sync Products From Code</button>
-      </form>
-    </div>
+async function renderGroupTab(group: ProductGroup): Promise<string> {
+  const finiteProductIds = group.products.filter((product) => product.stockMode === StockMode.FINITE).map((product) => product.id);
 
-    <div class="card">
-      <h3>Product Groups</h3>
-      <table>
-        <thead>
+  const availableCounts = finiteProductIds.length
+    ? await prisma.vpnKey.groupBy({
+      by: ["productId"],
+      where: {
+        productId: { in: finiteProductIds },
+        status: VpnKeyStatus.AVAILABLE,
+      },
+      _count: { _all: true },
+    })
+    : [];
+
+  const keys = finiteProductIds.length
+    ? await prisma.vpnKey.findMany({
+      where: {
+        productId: { in: finiteProductIds },
+        status: VpnKeyStatus.AVAILABLE,
+      },
+      select: {
+        id: true,
+        productId: true,
+        keyValue: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+    })
+    : [];
+
+  const availableByProduct = new Map<number, number>(availableCounts.map((row) => [row.productId, row._count._all]));
+  const keysByProduct = new Map<number, Array<{ id: number; keyValue: string; createdAt: Date }>>();
+  for (const key of keys) {
+    const existing = keysByProduct.get(key.productId) || [];
+    existing.push({ id: key.id, keyValue: key.keyValue, createdAt: key.createdAt });
+    keysByProduct.set(key.productId, existing);
+  }
+
+  const itemBlocks = group.products
+    .sort((a, b) => a.price - b.price)
+    .map((product) => {
+      const availableCount = product.stockMode === StockMode.UNLIMITED ? "Infinity" : String(availableByProduct.get(product.id) ?? 0);
+      const listRows = (keysByProduct.get(product.id) || [])
+        .slice(0, 20)
+        .map((key) => `
           <tr>
-            <th>Category</th><th>Product Group</th><th>Items Count</th><th>Provider</th><th>Stock Mode</th>
+            <td><code style="white-space:pre-wrap;word-break:break-all;">${escapeHtml(key.keyValue)}</code></td>
+            <td>${key.createdAt.toISOString().slice(0, 10)}</td>
+            <td>
+              <form method="post" action="/admin/keys/remove">
+                <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
+                <input type="hidden" name="keyId" value="${key.id}" />
+                <button class="btn-danger" type="submit">Remove</button>
+              </form>
+            </td>
           </tr>
-        </thead>
-        <tbody>${rows || "<tr><td colspan='5'>No products synced</td></tr>"}</tbody>
-      </table>
-    </div>
-  `;
-}
+        `)
+        .join("");
 
-async function renderOutlineTab(): Promise<string> {
-  const outlineProducts = await prisma.product.findMany({
-    where: { provider: ProductProvider.OUTLINE },
-    orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }],
-  });
+      const finiteKeySection = product.stockMode === StockMode.FINITE
+        ? `
+          <div class="stack">
+            <h3>Key List</h3>
+            <form method="post" action="/admin/keys/add" class="stack">
+              <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
+              <input type="hidden" name="productId" value="${product.id}" />
+              <textarea name="keyValues" placeholder="Paste key(s), one per line" required></textarea>
+              <div class="row"><button class="btn" type="submit">Add Key(s)</button></div>
+            </form>
+            <table>
+              <thead><tr><th>Key</th><th>Created</th><th>Action</th></tr></thead>
+              <tbody>${listRows || "<tr><td colspan='3'>No available keys</td></tr>"}</tbody>
+            </table>
+            <p class="muted">Only AVAILABLE keys can be removed.</p>
+          </div>
+        `
+        : `<p class="muted">This item is unlimited and auto-generated after successful payment. Manual key list is not required.</p>`;
 
-  const keys = outlineClient ? await outlineClient.listAccessKeys() : [];
-  const productOptions = outlineProducts
-    .map((product) => `<option value="${product.id}">${escapeHtml(product.name)} (${product.price.toLocaleString("en-US")} Ks)</option>`)
+      return `
+        <div class="card">
+          <h3>${escapeHtml(product.name)}</h3>
+          <p class="muted">
+            Price: ${product.price.toLocaleString("en-US")} Ks/month |
+            Provider: ${escapeHtml(product.provider)} |
+            Stock Mode: ${escapeHtml(product.stockMode)} |
+            Stock: ${escapeHtml(availableCount)}
+          </p>
+          ${finiteKeySection}
+        </div>
+      `;
+    })
     .join("");
-
-  const keyRows = keys.map((key) => `
-    <tr>
-      <td>${escapeHtml(key.id)}</td>
-      <td>${escapeHtml(key.name || "-")}</td>
-      <td><code>${escapeHtml(key.accessUrl)}</code></td>
-    </tr>
-  `).join("");
 
   return `
     <div class="card">
-      <h2>Outline Keys</h2>
-      <p class="muted">Outline API: ${OUTLINE_API_URL ? "Connected" : "Not configured"}</p>
-      <p class="muted">Order flow in bot auto-generates and auto-delivers keys after success.</p>
-      <form method="post" action="/admin/outline/create-key" class="row">
-        <input name="username" placeholder="Telegram username" required />
-        <select name="productId">${productOptions || "<option value=''>No outline products</option>"}</select>
-        <button class="btn" type="submit">Create Test Key</button>
-      </form>
+      <h2>${escapeHtml(group.title)}</h2>
+      <p class="muted">This tab contains the item list for this product group.</p>
     </div>
-
-    <div class="card">
-      <h3>Existing Access Keys</h3>
-      <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Access URL</th></tr></thead>
-        <tbody>${keyRows || "<tr><td colspan='3'>No keys found</td></tr>"}</tbody>
-      </table>
-    </div>
+    ${itemBlocks || "<div class='card'><p>No items found in this product group.</p></div>"}
   `;
 }
 
-async function renderAdminPage(tab: AdminTab, message = ""): Promise<string> {
+async function renderAdminPage(requestedGroupKey: string, message = ""): Promise<string> {
+  const products = await prisma.product.findMany({
+    where: { isActive: true },
+    orderBy: [{ subCategory: "asc" }, { price: "asc" }, { name: "asc" }],
+  });
+  const groups = buildProductGroups(products);
+  const activeGroup = groups.find((group) => group.key === requestedGroupKey) || groups[0] || null;
   const flash = message ? `<p class="muted">${escapeHtml(message)}</p>` : "";
-  const tabContent = tab === "outline" ? await renderOutlineTab() : await renderProductsTab();
+  const tabs = groups.map((group) => tabLink(group, activeGroup?.key || "")).join("");
+  const tabContent = activeGroup
+    ? await renderGroupTab(activeGroup)
+    : `<div class="card"><h2>No products</h2><p class="muted">Run product sync to load product list from code.</p></div>`;
 
   return renderLayout("TechStore Admin", `
     <div class="card">
       <h1>TechStore Admin</h1>
       ${flash}
-      <div class="tabs">${tabLink("products", tab)}${tabLink("outline", tab)}</div>
+      <p class="muted">Products are code-driven. Tabs are product groups. Each tab shows its item list only.</p>
+      <div class="tabs">${tabs || "<span class='muted'>No product tabs</span>"}</div>
       <br />
-      <form method="post" action="/logout"><button class="btn-secondary" type="submit">Logout</button></form>
+      <div class="row">
+        <form method="post" action="/admin/products/sync">
+          <input type="hidden" name="group" value="${escapeHtml(activeGroup?.key || "")}" />
+          <button class="btn" type="submit">Sync Products From Code</button>
+        </form>
+        <form method="post" action="/logout"><button class="btn-secondary" type="submit">Logout</button></form>
+      </div>
     </div>
     ${tabContent}
   `);
@@ -261,39 +303,88 @@ async function main() {
   });
 
   app.get("/admin", adminOnly, async (req, res) => {
-    const tabRaw = typeof req.query.tab === "string" ? req.query.tab : "products";
-    const tab: AdminTab = tabRaw === "outline" ? "outline" : "products";
+    const group = typeof req.query.group === "string" ? req.query.group : "";
     const message = getFlashMessage(req.query.message);
-    res.send(await renderAdminPage(tab, message));
+    res.send(await renderAdminPage(group, message));
   });
 
-  app.post("/admin/products/sync", adminOnly, async (_req, res) => {
+  app.post("/admin/products/sync", adminOnly, async (req, res) => {
+    const group = String(req.body.group || "").trim();
     const count = await syncCatalogProducts(prisma);
-    res.redirect(`/admin?tab=products&message=Synced%20${count}%20products%20from%20code`);
+    const query = new URLSearchParams({
+      message: `Synced ${count} products from code`,
+    });
+    if (group) {
+      query.set("group", group);
+    }
+    res.redirect(`/admin?${query.toString()}`);
   });
 
-  app.post("/admin/outline/create-key", adminOnly, async (req, res) => {
-    if (!outlineClient) {
-      res.redirect("/admin?tab=outline&message=Outline%20API%20not%20configured");
+  app.post("/admin/keys/add", adminOnly, async (req, res) => {
+    const group = String(req.body.group || "").trim();
+    const productId = Number(req.body.productId || 0);
+    const keyValuesRaw = String(req.body.keyValues || "");
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Invalid%20product`);
       return;
     }
 
-    const username = String(req.body.username || "").trim();
-    const productId = Number(req.body.productId || 0);
-    if (!username || !Number.isInteger(productId) || productId <= 0) {
-      res.redirect("/admin?tab=outline&message=Invalid%20input");
+    const values = keyValuesRaw
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
+    if (!values.length) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=No%20keys%20provided`);
       return;
     }
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
-    if (!product) {
-      res.redirect("/admin?tab=outline&message=Product%20not%20found");
+    if (!product || !product.isActive) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Product%20not%20found`);
       return;
     }
 
-    const keyName = buildOutlineKeyName(username, product.code);
-    const key = await outlineClient.createAccessKey(keyName);
-    res.redirect(`/admin?tab=outline&message=Created%20key%20${encodeURIComponent(key.id)}`);
+    if (product.stockMode !== StockMode.FINITE) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Manual%20key%20list%20is%20only%20for%20FINITE%20items`);
+      return;
+    }
+
+    const inserted = await prisma.vpnKey.createMany({
+      data: values.map((keyValue) => ({
+        productId: product.id,
+        keyValue,
+        status: VpnKeyStatus.AVAILABLE,
+      })),
+      skipDuplicates: true,
+    });
+
+    res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Added%20${inserted.count}%20keys`);
+  });
+
+  app.post("/admin/keys/remove", adminOnly, async (req, res) => {
+    const group = String(req.body.group || "").trim();
+    const keyId = Number(req.body.keyId || 0);
+
+    if (!Number.isInteger(keyId) || keyId <= 0) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Invalid%20key%20id`);
+      return;
+    }
+
+    const key = await prisma.vpnKey.findUnique({ where: { id: keyId } });
+    if (!key) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Key%20not%20found`);
+      return;
+    }
+
+    if (key.status !== VpnKeyStatus.AVAILABLE) {
+      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Only%20available%20keys%20can%20be%20removed`);
+      return;
+    }
+
+    await prisma.vpnKey.delete({ where: { id: keyId } });
+    res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Key%20removed`);
   });
 
   app.get("/health", (_req, res) => {

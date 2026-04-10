@@ -121,6 +121,19 @@ export const PRODUCT_CATALOG: ProductCatalogItem[] = [
 ];
 
 export async function syncCatalogProducts(prisma: PrismaClient): Promise<number> {
+  const catalogCodes = PRODUCT_CATALOG.map((item) => item.code);
+
+  await prisma.product.updateMany({
+    where: {
+      code: {
+        notIn: catalogCodes,
+      },
+    },
+    data: {
+      isActive: false,
+    },
+  });
+
   for (const product of PRODUCT_CATALOG) {
     await prisma.product.upsert({
       where: { code: product.code },
@@ -137,4 +150,3 @@ export async function syncCatalogProducts(prisma: PrismaClient): Promise<number>
 
   return PRODUCT_CATALOG.length;
 }
-
