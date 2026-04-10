@@ -125,23 +125,23 @@ function buildProductGroups(products: Product[]): ProductGroup[] {
 }
 
 async function renderGroupTab(group: ProductGroup): Promise<string> {
-  const finiteProductIds = group.products.filter((product) => product.stockMode === StockMode.FINITE).map((product) => product.id);
+  const itemProductIds = group.products.map((product) => product.id);
 
-  const availableCounts = finiteProductIds.length
+  const availableCounts = itemProductIds.length
     ? await prisma.vpnKey.groupBy({
       by: ["productId"],
       where: {
-        productId: { in: finiteProductIds },
+        productId: { in: itemProductIds },
         status: VpnKeyStatus.AVAILABLE,
       },
       _count: { _all: true },
     })
     : [];
 
-  const keys = finiteProductIds.length
+  const keys = itemProductIds.length
     ? await prisma.vpnKey.findMany({
       where: {
-        productId: { in: finiteProductIds },
+        productId: { in: itemProductIds },
         status: VpnKeyStatus.AVAILABLE,
       },
       select: {
@@ -166,7 +166,10 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
   const itemBlocks = group.products
     .sort((a, b) => a.price - b.price)
     .map((product) => {
-      const availableCount = product.stockMode === StockMode.UNLIMITED ? "Infinity" : String(availableByProduct.get(product.id) ?? 0);
+      const manualAvailableCount = availableByProduct.get(product.id) ?? 0;
+      const availableCount = product.stockMode === StockMode.UNLIMITED
+        ? `Infinity (manual list: ${manualAvailableCount})`
+        : String(manualAvailableCount);
       const listRows = (keysByProduct.get(product.id) || [])
         .slice(0, 20)
         .map((key) => `
@@ -184,24 +187,22 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
         `)
         .join("");
 
-      const finiteKeySection = product.stockMode === StockMode.FINITE
-        ? `
-          <div class="stack">
-            <h3>Key List</h3>
-            <form method="post" action="/admin/keys/add" class="stack">
-              <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
-              <input type="hidden" name="productId" value="${product.id}" />
-              <textarea name="keyValues" placeholder="Paste key(s), one per line" required></textarea>
-              <div class="row"><button class="btn" type="submit">Add Key(s)</button></div>
-            </form>
-            <table>
-              <thead><tr><th>Key</th><th>Created</th><th>Action</th></tr></thead>
-              <tbody>${listRows || "<tr><td colspan='3'>No available keys</td></tr>"}</tbody>
-            </table>
-            <p class="muted">Only AVAILABLE keys can be removed.</p>
-          </div>
-        `
-        : `<p class="muted">This item is unlimited and auto-generated after successful payment. Manual key list is not required.</p>`;
+      const keyListSection = `
+        <div class="stack">
+          <h3>Key List</h3>
+          <form method="post" action="/admin/keys/add" class="stack">
+            <input type="hidden" name="group" value="${escapeHtml(group.key)}" />
+            <input type="hidden" name="productId" value="${product.id}" />
+            <textarea name="keyValues" placeholder="Paste key(s), one per line" required></textarea>
+            <div class="row"><button class="btn" type="submit">Add Key(s)</button></div>
+          </form>
+          <table>
+            <thead><tr><th>Key</th><th>Created</th><th>Action</th></tr></thead>
+            <tbody>${listRows || "<tr><td colspan='3'>No available keys</td></tr>"}</tbody>
+          </table>
+          <p class="muted">Only AVAILABLE keys can be removed. Unlimited items still auto-generate on successful purchase.</p>
+        </div>
+      `;
 
       return `
         <div class="card">
@@ -212,7 +213,7 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
             Stock Mode: ${escapeHtml(product.stockMode)} |
             Stock: ${escapeHtml(availableCount)}
           </p>
-          ${finiteKeySection}
+          ${keyListSection}
         </div>
       `;
     })
@@ -343,11 +344,6 @@ async function main() {
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product || !product.isActive) {
       res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Product%20not%20found`);
-      return;
-    }
-
-    if (product.stockMode !== StockMode.FINITE) {
-      res.redirect(`/admin?group=${encodeURIComponent(group)}&message=Manual%20key%20list%20is%20only%20for%20FINITE%20items`);
       return;
     }
 
