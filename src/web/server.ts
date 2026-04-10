@@ -98,47 +98,63 @@ async function renderProductsTab(): Promise<string> {
     orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }],
   });
 
-  const rows = products.map((product) => {
-    const successType = typeof product.successInstructions === "object" && product.successInstructions && "type" in (product.successInstructions as Record<string, unknown>)
-      ? String((product.successInstructions as Record<string, unknown>).type)
-      : "-";
+  type ProductGroup = {
+    category: string;
+    subCategory: string;
+    itemCount: number;
+    providers: Set<string>;
+    stockModes: Set<string>;
+  };
 
-    return `
+  const groups = new Map<string, ProductGroup>();
+  for (const product of products) {
+    const key = `${product.category}::${product.subCategory}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.itemCount += 1;
+      existing.providers.add(product.provider);
+      existing.stockModes.add(product.stockMode);
+      continue;
+    }
+    groups.set(key, {
+      category: product.category,
+      subCategory: product.subCategory,
+      itemCount: 1,
+      providers: new Set<string>([product.provider]),
+      stockModes: new Set<string>([product.stockMode]),
+    });
+  }
+
+  const rows = Array.from(groups.values())
+    .map((group) => `
       <tr>
-        <td>${escapeHtml(product.category)}</td>
-        <td>${escapeHtml(product.subCategory)}</td>
-        <td>${escapeHtml(product.code)}</td>
-        <td>${escapeHtml(product.name)}</td>
-        <td>${escapeHtml(product.provider)}</td>
-        <td>${escapeHtml(product.stockMode)}</td>
-        <td>${product.autoFulfill ? "Yes" : "No"}</td>
-        <td>${product.price.toLocaleString("en-US")} Ks</td>
-        <td>${escapeHtml(product.warning || "-")}</td>
-        <td>${escapeHtml(product.notes || "-")}</td>
-        <td>${escapeHtml(successType)}</td>
+        <td>${escapeHtml(group.category)}</td>
+        <td>${escapeHtml(group.subCategory)}</td>
+        <td>${group.itemCount}</td>
+        <td>${escapeHtml(Array.from(group.providers).join(", "))}</td>
+        <td>${escapeHtml(Array.from(group.stockModes).join(", "))}</td>
       </tr>
-    `;
-  }).join("");
+    `)
+    .join("");
 
   return `
     <div class="card">
       <h2>Products List (Code-Driven)</h2>
-      <p class="muted">No manual product creation here. Products come from code catalog sync.</p>
+      <p class="muted">No manual product creation here. Products come from code catalog sync. This view shows only product groups, not item rows.</p>
       <form method="post" action="/admin/products/sync" class="row">
         <button class="btn" type="submit">Sync Products From Code</button>
       </form>
     </div>
 
     <div class="card">
-      <h3>All Products</h3>
+      <h3>Product Groups</h3>
       <table>
         <thead>
           <tr>
-            <th>Category</th><th>Product Group</th><th>Item Code</th><th>Item Name</th><th>Provider</th>
-            <th>Stock</th><th>Auto</th><th>Price</th><th>Warning</th><th>Note</th><th>Success Type</th>
+            <th>Category</th><th>Product Group</th><th>Items Count</th><th>Provider</th><th>Stock Mode</th>
           </tr>
         </thead>
-        <tbody>${rows || "<tr><td colspan='11'>No products synced</td></tr>"}</tbody>
+        <tbody>${rows || "<tr><td colspan='5'>No products synced</td></tr>"}</tbody>
       </table>
     </div>
   `;
