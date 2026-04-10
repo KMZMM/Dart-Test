@@ -91,7 +91,9 @@ model Product {
   provider  ProductProvider @default(INTERNAL)
   stockMode StockMode @default(FINITE)
   autoFulfill Boolean @default(true)
+  warning   String   @default("")
   notes     String   @default("")
+  successInstructions Json?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

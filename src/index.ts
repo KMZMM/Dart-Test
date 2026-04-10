@@ -96,6 +96,65 @@ function buildOutlineKeyName(user: User, product: Product, index: number): strin
   return `${base}-${plan}-${suffix}`;
 }
 
+type SuccessInstructionsPayload =
+  | { type: "text"; text: string }
+  | { type: "video"; url: string; caption?: string }
+  | { type: "images"; urls: string[]; caption?: string };
+
+function parseSuccessInstructions(value: Prisma.JsonValue | null): SuccessInstructionsPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  if (type === "text" && typeof record.text === "string" && record.text.trim()) {
+    return { type: "text", text: record.text.trim() };
+  }
+  if (type === "video" && typeof record.url === "string" && record.url.trim()) {
+    const caption = typeof record.caption === "string" ? record.caption.trim() : undefined;
+    return { type: "video", url: record.url.trim(), caption };
+  }
+  if (type === "images" && Array.isArray(record.urls)) {
+    const urls = record.urls.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    if (urls.length) {
+      const caption = typeof record.caption === "string" ? record.caption.trim() : undefined;
+      return { type: "images", urls, caption };
+    }
+  }
+  return null;
+}
+
+async function sendSuccessInstructionsToUser(telegramId: bigint, product: Product): Promise<void> {
+  const payload = parseSuccessInstructions(product.successInstructions as Prisma.JsonValue | null);
+  if (!payload) {
+    return;
+  }
+
+  const chatId = telegramId.toString();
+  if (payload.type === "text") {
+    await bot.api.sendMessage(chatId, payload.text);
+    return;
+  }
+  if (payload.type === "video") {
+    await bot.api.sendVideo(chatId, payload.url, {
+      caption: payload.caption,
+    });
+    return;
+  }
+  if (payload.urls.length === 1) {
+    await bot.api.sendPhoto(chatId, payload.urls[0], { caption: payload.caption });
+    return;
+  }
+  await bot.api.sendMediaGroup(
+    chatId,
+    payload.urls.map((url, index) => ({
+      type: "photo",
+      media: url,
+      caption: index === 0 ? payload.caption : undefined,
+    })),
+  );
+}
+
 function isAdminUser(telegramId: bigint, username?: string | null): boolean {
   if (config.adminIds.some((id) => id === telegramId)) {
     return true;
@@ -658,6 +717,9 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
     `Duration: ${product.duration}`,
     `Stock: ${stockText}`,
     `Price: ${formatKs(product.price)}/month`,
+    "",
+    "Warning:",
+    product.warning?.trim() || "-",
     "",
     "Notes:",
     product.notes || "- The key will expire after the duration ends.\n- Do not share your key.\n- No refund after activation.",
@@ -1231,6 +1293,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
             ...keys.map((key, index) => `${index + 1}. ${key}`),
           ].join("\n"),
         );
+        await sendSuccessInstructionsToUser(user.telegramId, product);
       } catch (error) {
         await ctx.reply(
           [
@@ -1267,6 +1330,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
           "Your order requires manual delivery. Admin will send your key soon.",
         ].join("\n"),
       );
+      await sendSuccessInstructionsToUser(user.telegramId, product);
 
       await notifyAdminsManualWalletPurchase(
         result.purchaseId,
@@ -1291,6 +1355,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
         ...result.keys.map((key, index) => `${index + 1}. ${key}`),
       ].join("\n"),
     );
+    await sendSuccessInstructionsToUser(user.telegramId, product);
     return;
   }
 
@@ -1406,6 +1471,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
             ...keys.map((key, index) => `${index + 1}. ${key}`),
           ].join("\n"),
         );
+        await sendSuccessInstructionsToUser(result.user.telegramId, result.product);
       } catch (error) {
         await bot.api.sendMessage(
           result.user.telegramId.toString(),
@@ -1449,6 +1515,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
         ...result.keys.map((key, index) => `${index + 1}. ${key}`),
       ].join("\n");
     await bot.api.sendMessage(result.user.telegramId.toString(), message);
+    await sendSuccessInstructionsToUser(result.user.telegramId, result.product);
     await ctx.answerCallbackQuery({ text: "Purchase approved" });
     await ctx.reply(`Purchase #${id} approved.`);
     return;
