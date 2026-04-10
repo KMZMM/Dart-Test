@@ -183,10 +183,19 @@ async function renderGroupTab(group: ProductGroup): Promise<string> {
 }
 
 async function renderAdminPage(requestedGroupKey: string, message = ""): Promise<string> {
-  const products = await prisma.product.findMany({
+  let products = await prisma.product.findMany({
     where: { isActive: true },
     orderBy: [{ subCategory: "asc" }, { price: "asc" }, { name: "asc" }],
   });
+
+  if (!products.length) {
+    await syncCatalogProducts(prisma);
+    products = await prisma.product.findMany({
+      where: { isActive: true },
+      orderBy: [{ subCategory: "asc" }, { price: "asc" }, { name: "asc" }],
+    });
+  }
+
   const groups = buildProductGroups(products);
   const activeGroup = groups.find((group) => group.key === requestedGroupKey) || groups[0] || null;
   const flash = message ? `<p class="muted">${escapeHtml(message)}</p>` : "";
