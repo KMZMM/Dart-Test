@@ -794,7 +794,7 @@ async function sendProductList(ctx: BotContext): Promise<void> {
 
   for (const product of products) {
     const stockLabel = product.stockMode === "UNLIMITED"
-      ? "(INF)"
+      ? "(∞)"
       : `(${stockByProduct.get(product.id) ?? 0})`;
     rows.push([{
       text: `${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`,
