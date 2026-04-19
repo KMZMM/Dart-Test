@@ -270,12 +270,13 @@ function buyCancelKeyboard() {
 }
 
 function guideMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("How to Top Up", "guide:topup")
-    .row()
-    .text("How to Buy VPN Key", "guide:buyvpn")
-    .row()
-    .text("Back", "main:menu");
+  return {
+    inline_keyboard: [
+      [{ text: "How to Top Up", callback_data: "guide:topup", icon_custom_emoji_id: "5452026937172048380" }],
+      [{ text: "How to Buy VPN Key", callback_data: "guide:buyvpn", icon_custom_emoji_id: "5452026937172048380" }],
+      [{ text: "Back", callback_data: "main:menu" }],
+    ],
+  } as any;
 }
 
 function productDetailsKeyboard(productId: number): InlineKeyboard {
@@ -519,15 +520,21 @@ async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> 
   });
 
   if (!requests.length) {
-    await ctx.reply("No top-up history yet.");
+    await respondMenu(ctx, "<b>😊 Top-Up History\n\nNo top-up history yet.</b>", new InlineKeyboard().text("Back", "main:topup"), { rawHtml: true });
     return;
   }
 
-  const lines = requests.map((item, index) => {
-    return `${index + 1}. ${formatDate(item.createdAt)} | ${formatKs(item.amount)} | ${PAYMENT_METHOD_LABELS[item.paymentMethod]} | ${statusText(item.status)}`;
+  const lines = requests.map((item) => {
+    return `<b>[${escapeHtml(formatDate(item.createdAt))}] | ${escapeHtml(formatKs(item.amount))} | ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])} | ${escapeHtml(statusText(item.status))}</b>`;
   });
 
-  await ctx.reply(`Top-Up History\n\n${lines.join("\n")}`);
+  const text = [
+    "<b>😊 Top-Up History</b>",
+    "",
+    "<b>🌉 Top-Ups:</b>",
+    ...lines,
+  ].join("\n");
+  await respondMenu(ctx, text, new InlineKeyboard().text("Back", "main:topup"), { rawHtml: true });
 }
 
 async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<void> {
@@ -545,47 +552,30 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }),
   ]);
 
-  let text = "";
-  const entities: MessageEntity[] = [];
-
-  text = appendCustomEmoji(text, entities, "5246723905535632915");
-  text += "Transaction History\n\n";
-
-  text = appendCustomEmoji(text, entities, "5301166339749070453");
-  text += "Top-Ups:\n";
+  const lines: string[] = ["<b>😊 Transaction History</b>", "", "<b>🌉 Top-Ups:</b>"];
   if (!topups.length) {
-    text += "No top-up records\n";
+    lines.push("<b>No top-up records</b>");
   } else {
     for (const item of topups) {
-      text += `[${formatDate(item.createdAt)}] | ${formatKs(item.amount)} | `;
-      text = appendCustomEmoji(text, entities, paymentEmojiId(item.paymentMethod));
-      text += " | ";
-      text = appendCustomEmoji(text, entities, statusEmojiId(item.status));
-      text += "\n";
+      lines.push(
+        `<b>[${escapeHtml(formatDate(item.createdAt))}] | ${escapeHtml(formatKs(item.amount))} | ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])} | ${escapeHtml(statusText(item.status))}</b>`,
+      );
     }
   }
 
-  text += "\nPurchases:\n";
+  lines.push("", "<b>Purchases:</b>");
   if (!purchases.length) {
-    text += "No purchase records";
+    lines.push("<b>No purchase records</b>");
   } else {
     for (const item of purchases) {
-      text += `[${formatDate(item.createdAt)}]\n`;
-      text = appendCustomEmoji(text, entities, "6082614104290232643");
-      text += `${item.product.name} x ${item.quantity} | ${formatKs(item.totalCost)} | `;
-      text = appendCustomEmoji(text, entities, paymentEmojiId(item.paymentMethod));
-      text += " | ";
-      text = appendCustomEmoji(text, entities, statusEmojiId(item.status));
-      text += "\n";
+      lines.push(`<b>[${escapeHtml(formatDate(item.createdAt))}]</b>`);
+      lines.push(
+        `<b>👍 ${escapeHtml(item.product.name)} x ${item.quantity} | ${escapeHtml(formatKs(item.totalCost))} | ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])} | ${escapeHtml(statusText(item.status))}</b>`,
+      );
     }
-    text = text.trimEnd();
   }
 
-  try {
-    await respondMenuWithEntities(ctx, text, entities, new InlineKeyboard().text("Back", "main:menu"));
-  } catch {
-    await respondMenu(ctx, "Transaction History is temporarily unavailable. Please try again.", new InlineKeyboard().text("Back", "main:menu"));
-  }
+  await respondMenu(ctx, lines.join("\n"), new InlineKeyboard().text("Back", "main:menu"), { rawHtml: true });
 }
 
 async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<void> {
