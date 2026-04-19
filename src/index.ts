@@ -711,26 +711,17 @@ async function sendProductList(ctx: BotContext): Promise<void> {
     stockGroups.map((group) => [group.productId, group._count._all]),
   );
 
-  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
-  let currentRow: Array<{ text: string; callback_data: string }> = [];
+  const rows: Array<Array<{ text: string; callback_data: string; icon_custom_emoji_id?: string }>> = [];
 
   for (const product of products) {
     const stockLabel = product.stockMode === "UNLIMITED"
       ? "(INF)"
       : `(${stockByProduct.get(product.id) ?? 0})`;
-    const tileIcon = product.stockMode === "UNLIMITED" ? "[SQ]" : "[BT]";
-    const providerIcon = product.provider === "OUTLINE" ? "[OL]" : "[IN]";
-    currentRow.push({
-      text: `${tileIcon}${providerIcon} ${product.name}\n${stockLabel} | ${formatKs(product.price)}/month`,
-      callback_data: `prod:${product.id}`
-    });
-    if (currentRow.length === 2) {
-      rows.push(currentRow);
-      currentRow = [];
-    }
-  }
-  if (currentRow.length > 0) {
-    rows.push(currentRow);
+    rows.push([{
+      text: `${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`,
+      callback_data: `prod:${product.id}`,
+      icon_custom_emoji_id: "6082614104290232643",
+    }]);
   }
   rows.push([{ text: "Back", callback_data: "main:menu" }]);
 
