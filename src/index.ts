@@ -1,6 +1,6 @@
 import { PaymentMethod, Prisma, Product, ProductProvider, RequestStatus, SessionStep, StockMode, User, WalletTransactionType } from "@prisma/client";
 import { Bot, Context, InlineKeyboard } from "grammy";
-import type { User as TelegramUser } from "grammy/types";
+import type { MessageEntity, User as TelegramUser } from "grammy/types";
 import { config } from "./config";
 import { prisma } from "./prisma";
 import { OutlineManagerClient } from "./services/outline";
@@ -284,12 +284,22 @@ function adminPurchaseKeyboard(purchaseId: number): InlineKeyboard {
     .text("Reject", `adm:purchase:reject:${purchaseId}`);
 }
 
-function buildMainMenuText(user: User): string {
-  return [
-    `<tg-emoji emoji-id="5258011929993026890"></tg-emoji> ${escapeHtml(displayName(user))}`,
-    `<tg-emoji emoji-id="5875335525136602241"></tg-emoji> ${escapeHtml(user.telegramId.toString())}`,
-    `<tg-emoji emoji-id="5256186332669035163"></tg-emoji> ${escapeHtml(formatKs(user.balance))}`,
-  ].join("\n");
+function buildMainMenuText(user: User): { text: string; entities: MessageEntity[] } {
+  const line1 = `👤 ${displayName(user)}`;
+  const line2 = `🆔 ${user.telegramId.toString()}`;
+  const line3 = `👛 ${formatKs(user.balance)}`;
+  const text = [line1, line2, line3].join("\n");
+  const offset2 = line1.length + 1;
+  const offset3 = offset2 + line2.length + 1;
+
+  const entities: MessageEntity[] = [
+    { type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "5258011929993026890" },
+    { type: "custom_emoji", offset: offset2, length: 2, custom_emoji_id: "5875335525136602241" },
+    { type: "custom_emoji", offset: offset3, length: 2, custom_emoji_id: "5256186332669035163" },
+    { type: "bold", offset: 0, length: text.length },
+  ];
+
+  return { text, entities };
 }
 
 async function respondMenu(
@@ -324,6 +334,42 @@ async function respondMenu(
   }
 
   const sent = await ctx.reply(htmlText, { reply_markup: keyboard, parse_mode: "HTML" });
+  if (chatId) {
+    uiMessageByChat.set(chatId, sent.message_id);
+  }
+}
+
+async function respondMenuWithEntities(
+  ctx: BotContext,
+  text: string,
+  entities: MessageEntity[],
+  keyboard: any,
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (ctx.callbackQuery?.message) {
+    try {
+      await ctx.editMessageText(text, { reply_markup: keyboard, entities });
+      if (chatId) {
+        uiMessageByChat.set(chatId, ctx.callbackQuery.message.message_id);
+      }
+      return;
+    } catch {
+      // Fallback to a new message when editing is not possible.
+    }
+  }
+  if (chatId) {
+    const previousMessageId = uiMessageByChat.get(chatId);
+    if (previousMessageId) {
+      try {
+        await ctx.api.editMessageText(chatId, previousMessageId, text, { reply_markup: keyboard, entities });
+        return;
+      } catch {
+        // Ignore and fallback to sending a new message.
+      }
+    }
+  }
+
+  const sent = await ctx.reply(text, { reply_markup: keyboard, entities });
   if (chatId) {
     uiMessageByChat.set(chatId, sent.message_id);
   }
@@ -434,7 +480,8 @@ async function upsertUser(from: TelegramUser): Promise<User> {
 async function sendMainMenu(ctx: BotContext, userId: number): Promise<void> {
   const freshUser = await prisma.user.findUnique({ where: { id: userId } });
   if (!freshUser) return;
-  await respondMenu(ctx, `<b>${buildMainMenuText(freshUser)}</b>`, mainMenuKeyboard(), { rawHtml: true });
+  const main = buildMainMenuText(freshUser);
+  await respondMenuWithEntities(ctx, main.text, main.entities, mainMenuKeyboard());
 }
 
 async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> {
