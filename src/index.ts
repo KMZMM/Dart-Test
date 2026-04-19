@@ -54,6 +54,20 @@ function statusText(status: RequestStatus): string {
   return "Pending";
 }
 
+function paymentMethodWithEmojiHtml(method: PaymentMethod): string {
+  if (method === "KBZ_PAY") return `<tg-emoji emoji-id="6242327582793014742"></tg-emoji> Kbzpay`;
+  if (method === "AYA_PAY") return `<tg-emoji emoji-id="6244330244438760349"></tg-emoji> Aya pay`;
+  if (method === "WAVE_PAY") return `<tg-emoji emoji-id="6244400153621438081"></tg-emoji> Wave pay`;
+  if (method === "UAB_PAY") return `<tg-emoji emoji-id="6244369556274421017"></tg-emoji> Uab pay`;
+  return `<tg-emoji emoji-id="5206173732019659003"></tg-emoji> Wallet`;
+}
+
+function statusWithEmojiHtml(status: RequestStatus): string {
+  if (status === "APPROVED") return `<tg-emoji emoji-id="5260416304224936047"></tg-emoji> Success`;
+  if (status === "REJECTED") return `<tg-emoji emoji-id="5226886710020820160"></tg-emoji> Failed`;
+  return `<tg-emoji emoji-id="5262838597060422237"></tg-emoji> Pending`;
+}
+
 function displayName(user: User): string {
   const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
   return full || user.username || "User";
@@ -518,32 +532,34 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }),
   ]);
 
-  const lines: string[] = ["Transaction History", ""];
-
-  lines.push("Top-Ups:");
+  const lines: string[] = [];
+  lines.push(`<tg-emoji emoji-id="5246723905535632915"></tg-emoji><b>Transaction History</b>`);
+  lines.push("");
+  lines.push(`<b><tg-emoji emoji-id="5301166339749070453"></tg-emoji>Top-Ups:</b>`);
   if (!topups.length) {
-    lines.push("- No top-up records");
+    lines.push(`<b>No top-up records</b>`);
   } else {
     for (const item of topups) {
       lines.push(
-        `- ${formatDate(item.createdAt)} | ${formatKs(item.amount)} | ${PAYMENT_METHOD_LABELS[item.paymentMethod]} | ${statusText(item.status)}`,
+        `<b>${escapeHtml(formatDate(item.createdAt))} | ${escapeHtml(formatKs(item.amount))} | ${paymentMethodWithEmojiHtml(item.paymentMethod)} | ${statusWithEmojiHtml(item.status)}</b>`,
       );
     }
   }
 
   lines.push("");
-  lines.push("Purchases:");
+  lines.push(`<b>Purchases:</b>`);
   if (!purchases.length) {
-    lines.push("- No purchase records");
+    lines.push(`<b>No purchase records</b>`);
   } else {
     for (const item of purchases) {
+      lines.push(`<b>[${escapeHtml(formatDate(item.createdAt))}]</b>`);
       lines.push(
-        `- ${formatDate(item.createdAt)} | ${item.product.name} x${item.quantity} | ${formatKs(item.totalCost)} | ${PAYMENT_METHOD_LABELS[item.paymentMethod]} | ${statusText(item.status)}`,
+        `<b><tg-emoji emoji-id="6082614104290232643"></tg-emoji>${escapeHtml(item.product.name)} x ${item.quantity} | ${escapeHtml(formatKs(item.totalCost))} | ${paymentMethodWithEmojiHtml(item.paymentMethod)} | ${statusWithEmojiHtml(item.status)}</b>`,
       );
     }
   }
 
-  await respondMenu(ctx, lines.join("\n"), new InlineKeyboard().text("Back", "main:menu"));
+  await respondMenu(ctx, lines.join("\n"), new InlineKeyboard().text("Back", "main:menu"), { rawHtml: true });
 }
 
 async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<void> {
