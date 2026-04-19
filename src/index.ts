@@ -247,11 +247,11 @@ function mainMenuKeyboard() {
 function topUpMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "😀 KBZ Pay", callback_data: "topup:method:KBZ_PAY", icon_custom_emoji_id: "6242327582793014742" }],
-      [{ text: "😀 Wave Pay", callback_data: "topup:method:WAVE_PAY", icon_custom_emoji_id: "6244400153621438081" }],
-      [{ text: "💵 UAB Pay", callback_data: "topup:method:UAB_PAY", icon_custom_emoji_id: "6244369556274421017" }],
-      [{ text: "😀 AYA Pay", callback_data: "topup:method:AYA_PAY", icon_custom_emoji_id: "6244330244438760349" }],
-      [{ text: "😊 Top-Up History", callback_data: "topup:history", icon_custom_emoji_id: "5246723905535632915" }],
+      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY", icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", icon_custom_emoji_id: "6244330244438760349" }],
+      [{ text: "Top-Up History", callback_data: "topup:history", icon_custom_emoji_id: "5246723905535632915" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -272,8 +272,8 @@ function buyCancelKeyboard() {
 function guideMenuKeyboard(): InlineKeyboard {
   return {
     inline_keyboard: [
-      [{ text: "ℹ️ How to Top Up", callback_data: "guide:topup", icon_custom_emoji_id: "5452026937172048380" }],
-      [{ text: "ℹ️ How to Buy VPN Key", callback_data: "guide:buyvpn", icon_custom_emoji_id: "5452026937172048380" }],
+      [{ text: "How to Top Up", callback_data: "guide:topup", icon_custom_emoji_id: "5452026937172048380" }],
+      [{ text: "How to Buy VPN Key", callback_data: "guide:buyvpn", icon_custom_emoji_id: "5452026937172048380" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -291,11 +291,11 @@ function productDetailsKeyboard(productId: number): InlineKeyboard {
 function paymentChoiceKeyboard(productId: number, quantity: number) {
   return {
     inline_keyboard: [
-      [{ text: "🔥 Pay with Wallet", callback_data: `pay:WALLET:${productId}:${quantity}`, icon_custom_emoji_id: "5206173732019659003" }],
-      [{ text: "😀 KBZ Pay", callback_data: `pay:KBZ_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6242327582793014742" }],
-      [{ text: "😀 Wave Pay", callback_data: `pay:WAVE_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244400153621438081" }],
-      [{ text: "💵 UAB Pay", callback_data: `pay:UAB_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244369556274421017" }],
-      [{ text: "😀 AYA Pay", callback_data: `pay:AYA_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244330244438760349" }],
+      [{ text: "Pay with Wallet", callback_data: `pay:WALLET:${productId}:${quantity}`, icon_custom_emoji_id: "5206173732019659003" }],
+      [{ text: "KBZ Pay", callback_data: `pay:KBZ_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: `pay:WAVE_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: `pay:UAB_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: `pay:AYA_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244330244438760349" }],
       [{ text: "Cancel", callback_data: "main:buyvpn" }],
     ],
   } as any;
@@ -520,7 +520,7 @@ async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> 
   });
 
   if (!requests.length) {
-    await respondMenu(ctx, "<b>😊 Top-Up History\n\nNo top-up history yet.</b>", new InlineKeyboard().text("Back", "main:topup"), { rawHtml: true });
+    await respondMenu(ctx, "<b>Top-Up History\n\nNo top-up history yet.</b>", new InlineKeyboard().text("Back", "main:topup"), { rawHtml: true });
     return;
   }
 
@@ -529,9 +529,9 @@ async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> 
   });
 
   const text = [
-    "<b>😊 Top-Up History</b>",
+    "<b>Top-Up History</b>",
     "",
-    "<b>🌉 Top-Ups:</b>",
+    "<b>Top-Ups:</b>",
     ...lines,
   ].join("\n");
   await respondMenu(ctx, text, new InlineKeyboard().text("Back", "main:topup"), { rawHtml: true });
@@ -552,7 +552,7 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }),
   ]);
 
-  const lines: string[] = ["<b>😊 Transaction History</b>", "", "<b>🌉 Top-Ups:</b>"];
+  const lines: string[] = ["<b>Transaction History</b>", "", "<b>Top-Ups:</b>"];
   if (!topups.length) {
     lines.push("<b>No top-up records</b>");
   } else {
@@ -570,7 +570,7 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     for (const item of purchases) {
       lines.push(`<b>[${escapeHtml(formatDate(item.createdAt))}]</b>`);
       lines.push(
-        `<b>👍 ${escapeHtml(item.product.name)} x ${item.quantity} | ${escapeHtml(formatKs(item.totalCost))} | ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])} | ${escapeHtml(statusText(item.status))}</b>`,
+        `<b>${escapeHtml(item.product.name)} x ${item.quantity} | ${escapeHtml(formatKs(item.totalCost))} | ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])} | ${escapeHtml(statusText(item.status))}</b>`,
       );
     }
   }
