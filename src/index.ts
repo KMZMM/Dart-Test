@@ -73,14 +73,15 @@ function appendCustomEmoji(
   entities: MessageEntity[],
   emojiId: string,
 ): string {
+  const placeholder = "\u{1F642}";
   const offset = text.length;
   entities.push({
     type: "custom_emoji",
     offset,
-    length: 1,
+    length: placeholder.length,
     custom_emoji_id: emojiId,
   });
-  return `${text}•`;
+  return `${text}${placeholder}`;
 }
 
 function displayName(user: User): string {
@@ -250,7 +251,7 @@ function topUpMenuKeyboard() {
       [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", icon_custom_emoji_id: "6244400153621438081" }],
       [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", icon_custom_emoji_id: "6244369556274421017" }],
       [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", icon_custom_emoji_id: "6244330244438760349" }],
-      [{ text: "Top-Up History", callback_data: "topup:history" }],
+      [{ text: "Top-Up History", callback_data: "topup:history", icon_custom_emoji_id: "5246723905535632915" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -580,7 +581,11 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     text = text.trimEnd();
   }
 
-  await respondMenuWithEntities(ctx, text, entities, new InlineKeyboard().text("Back", "main:menu"));
+  try {
+    await respondMenuWithEntities(ctx, text, entities, new InlineKeyboard().text("Back", "main:menu"));
+  } catch {
+    await respondMenu(ctx, "Transaction History is temporarily unavailable. Please try again.", new InlineKeyboard().text("Back", "main:menu"));
+  }
 }
 
 async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<void> {
@@ -1912,3 +1917,4 @@ async function bootstrapWithRetry() {
 }
 
 void bootstrapWithRetry();
+
