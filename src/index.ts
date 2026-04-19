@@ -246,10 +246,10 @@ function mainMenuKeyboard() {
 function topUpMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY" }],
-      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY" }],
-      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY" }],
-      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY" }],
+      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY", icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", icon_custom_emoji_id: "6244330244438760349" }],
       [{ text: "Top-Up History", callback_data: "topup:history" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
@@ -286,19 +286,17 @@ function productDetailsKeyboard(productId: number): InlineKeyboard {
     .text("Back", "main:buyvpn");
 }
 
-function paymentChoiceKeyboard(productId: number, quantity: number): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("Pay with Wallet", `pay:WALLET:${productId}:${quantity}`)
-    .row()
-    .text("KBZ Pay", `pay:KBZ_PAY:${productId}:${quantity}`)
-    .row()
-    .text("Wave Pay", `pay:WAVE_PAY:${productId}:${quantity}`)
-    .row()
-    .text("UAB Pay", `pay:UAB_PAY:${productId}:${quantity}`)
-    .row()
-    .text("AYA Pay", `pay:AYA_PAY:${productId}:${quantity}`)
-    .row()
-    .text("Cancel", "main:buyvpn");
+function paymentChoiceKeyboard(productId: number, quantity: number) {
+  return {
+    inline_keyboard: [
+      [{ text: "Pay with Wallet", callback_data: `pay:WALLET:${productId}:${quantity}`, icon_custom_emoji_id: "5206173732019659003" }],
+      [{ text: "KBZ Pay", callback_data: `pay:KBZ_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: `pay:WAVE_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: `pay:UAB_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: `pay:AYA_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244330244438760349" }],
+      [{ text: "Cancel", callback_data: "main:buyvpn" }],
+    ],
+  } as any;
 }
 
 function adminTopupKeyboard(requestId: number): InlineKeyboard {
@@ -325,7 +323,6 @@ function buildMainMenuText(user: User): { text: string; entities: MessageEntity[
     { type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "5258011929993026890" },
     { type: "custom_emoji", offset: offset2, length: 2, custom_emoji_id: "5875335525136602241" },
     { type: "custom_emoji", offset: offset3, length: 2, custom_emoji_id: "5256186332669035163" },
-    { type: "bold", offset: 0, length: text.length },
   ];
 
   return { text, entities };
@@ -583,7 +580,6 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     text = text.trimEnd();
   }
 
-  entities.push({ type: "bold", offset: 0, length: text.length });
   await respondMenuWithEntities(ctx, text, entities, new InlineKeyboard().text("Back", "main:menu"));
 }
 
