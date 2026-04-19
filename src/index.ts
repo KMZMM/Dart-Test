@@ -182,13 +182,34 @@ function boldText(text: string): string {
 function mainMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Buy Vpn Keys", callback_data: "main:buyvpn" }],
+      [{
+        text: "Buy Vpn Keys",
+        callback_data: "main:buyvpn",
+        icon_custom_emoji_id: "6037533655105016950",
+      }],
       [
-        { text: "Transaction History", callback_data: "main:history" },
-        { text: "Guide", callback_data: "main:guide" },
+        {
+          text: "Transaction History",
+          callback_data: "main:history",
+          icon_custom_emoji_id: "5246723905535632915",
+        },
+        {
+          text: "Guide",
+          callback_data: "main:guide",
+          icon_custom_emoji_id: "5452026937172048380",
+        },
       ],
-      [{ text: "Join Channel", url: config.channelLink }],
-      [{ text: "Top Up", callback_data: "main:topup", style: "success" }],
+      [{
+        text: "Join Channel",
+        url: config.channelLink,
+        icon_custom_emoji_id: "5866355487255039002",
+      }],
+      [{
+        text: "Top Up",
+        callback_data: "main:topup",
+        icon_custom_emoji_id: "5206173732019659003",
+        style: "success",
+      }],
     ],
   } as any;
 }
