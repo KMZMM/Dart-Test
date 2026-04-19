@@ -285,11 +285,20 @@ function adminPurchaseKeyboard(purchaseId: number): InlineKeyboard {
 }
 
 function buildMainMenuText(user: User): string {
-  return `Hi, ${displayName(user)}\nID: ${user.telegramId.toString()}\nBalance: ${formatKs(user.balance)}`;
+  return [
+    `<tg-emoji emoji-id="5258011929993026890"></tg-emoji> ${escapeHtml(displayName(user))}`,
+    `<tg-emoji emoji-id="5875335525136602241"></tg-emoji> ${escapeHtml(user.telegramId.toString())}`,
+    `<tg-emoji emoji-id="5256186332669035163"></tg-emoji> ${escapeHtml(formatKs(user.balance))}`,
+  ].join("\n");
 }
 
-async function respondMenu(ctx: BotContext, text: string, keyboard: any): Promise<void> {
-  const htmlText = boldText(text);
+async function respondMenu(
+  ctx: BotContext,
+  text: string,
+  keyboard: any,
+  options?: { rawHtml?: boolean },
+): Promise<void> {
+  const htmlText = options?.rawHtml ? text : boldText(text);
   const chatId = ctx.chat?.id;
   if (ctx.callbackQuery?.message) {
     try {
@@ -425,7 +434,7 @@ async function upsertUser(from: TelegramUser): Promise<User> {
 async function sendMainMenu(ctx: BotContext, userId: number): Promise<void> {
   const freshUser = await prisma.user.findUnique({ where: { id: userId } });
   if (!freshUser) return;
-  await respondMenu(ctx, buildMainMenuText(freshUser), mainMenuKeyboard());
+  await respondMenu(ctx, `<b>${buildMainMenuText(freshUser)}</b>`, mainMenuKeyboard(), { rawHtml: true });
 }
 
 async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> {
