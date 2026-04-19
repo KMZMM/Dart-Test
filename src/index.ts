@@ -32,8 +32,6 @@ type BuyScreenshotSessionData = {
 const bot = new Bot<BotContext>(config.botToken);
 const MIN_TOPUP_AMOUNT = 3000;
 const uiMessageByChat = new Map<number, number>();
-const PRODUCT_CATEGORY_VPN_KEYS = "VPN_KEYS";
-const PRODUCT_SUBCATEGORY_ALL_SIM_WIFI = "ALL_SIM_WIFI_VPN_KEYS";
 const OUTLINE_API_URL = process.env.OUTLINE_API_URL?.trim() || "";
 const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false";
 const outlineClient = OUTLINE_API_URL ? new OutlineManagerClient(OUTLINE_API_URL, OUTLINE_INSECURE_TLS) : null;
@@ -203,15 +201,6 @@ function topUpMenuKeyboard() {
       [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY" }],
       [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY" }],
       [{ text: "Top-Up History", callback_data: "topup:history" }],
-      [{ text: "Back", callback_data: "main:menu" }],
-    ],
-  } as any;
-}
-
-function vpnRootKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "All Sim & Wifi Vpn Keys", callback_data: "vpn:child:all_sim_wifi" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -664,18 +653,16 @@ async function resolveAdminTelegramIds(): Promise<bigint[]> {
   return Array.from(ids, (id) => BigInt(id));
 }
 
-async function sendProductList(ctx: BotContext, subCategory = PRODUCT_SUBCATEGORY_ALL_SIM_WIFI): Promise<void> {
+async function sendProductList(ctx: BotContext): Promise<void> {
   const products = await prisma.product.findMany({
     where: {
       isActive: true,
-      category: PRODUCT_CATEGORY_VPN_KEYS,
-      subCategory,
     },
-    orderBy: { price: "asc" },
+    orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }, { name: "asc" }],
   });
 
   if (!products.length) {
-    await respondMenu(ctx, "No products available right now.", new InlineKeyboard().text("Back", "main:buyvpn"));
+    await respondMenu(ctx, "No products available right now.", new InlineKeyboard().text("Back", "main:menu"));
     return;
   }
 
@@ -694,19 +681,31 @@ async function sendProductList(ctx: BotContext, subCategory = PRODUCT_SUBCATEGOR
     stockGroups.map((group) => [group.productId, group._count._all]),
   );
 
-  const keyboard = new InlineKeyboard();
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  let currentRow: Array<{ text: string; callback_data: string }> = [];
+
   for (const product of products) {
     const stockLabel = product.stockMode === "UNLIMITED"
-      ? "(♾️)"
+      ? "(INF)"
       : `(${stockByProduct.get(product.id) ?? 0})`;
-    keyboard.text(`${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`, `prod:${product.id}`);
-    keyboard.row();
+    const tileIcon = product.stockMode === "UNLIMITED" ? "[SQ]" : "[BT]";
+    const providerIcon = product.provider === "OUTLINE" ? "[OL]" : "[IN]";
+    currentRow.push({
+      text: `${tileIcon}${providerIcon} ${product.name}\n${stockLabel} | ${formatKs(product.price)}/month`,
+      callback_data: `prod:${product.id}`
+    });
+    if (currentRow.length === 2) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
   }
-  keyboard.text("Back", "main:buyvpn");
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
+  }
+  rows.push([{ text: "Back", callback_data: "main:menu" }]);
 
-  await respondMenu(ctx, "Hi, please choose a product:", keyboard);
+  await respondMenu(ctx, "Product List", { inline_keyboard: rows });
 }
-
 async function sendProductDetails(ctx: BotContext, product: Product): Promise<void> {
   const stockText = product.stockMode === "UNLIMITED" ? "Unlimited" : "Limited";
   const text = [
@@ -1196,12 +1195,7 @@ bot.callbackQuery("buy:cancel", async (ctx) => {
 
 bot.callbackQuery("main:buyvpn", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await respondMenu(ctx, "Vpn Keys", vpnRootKeyboard());
-});
-
-bot.callbackQuery("vpn:child:all_sim_wifi", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await sendProductList(ctx, PRODUCT_SUBCATEGORY_ALL_SIM_WIFI);
+  await sendProductList(ctx);
 });
 
 bot.callbackQuery(/^prod:(\d+)$/, async (ctx) => {
