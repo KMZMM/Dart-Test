@@ -640,7 +640,68 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }
   }
 
-  await respondMenu(ctx, lines.join("\n"), new InlineKeyboard().text("Back", "main:menu"), { rawHtml: true });
+  await respondMenu(
+    ctx,
+    lines.join("\n"),
+    new InlineKeyboard()
+      .text("Purchased Items", "history:purchased")
+      .row()
+      .text("Back", "main:menu"),
+    { rawHtml: true },
+  );
+}
+
+async function sendPurchasedItemsHistory(ctx: BotContext, userId: number): Promise<void> {
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      userId,
+      status: "APPROVED",
+    },
+    include: {
+      product: true,
+      vpnKeys: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  if (!purchases.length) {
+    await respondMenu(
+      ctx,
+      "<b>Purchased Items\n\nNo approved purchases yet.</b>",
+      new InlineKeyboard().text("Back", "main:history"),
+      { rawHtml: true },
+    );
+    return;
+  }
+
+  const blocks: string[] = ["<b>Purchased Items</b>"];
+  for (const item of purchases) {
+    const keyLines = item.vpnKeys.length
+      ? item.vpnKeys.map((k, idx) => `<b>${idx + 1}. </b><code>${escapeHtml(k.keyValue)}</code>`)
+      : ["<b>Credentials/Keys: Not available in history for this item.</b>"];
+
+    blocks.push(
+      "",
+      `<b>[${escapeHtml(formatDate(item.createdAt))}]</b>`,
+      `<b>Product: ${escapeHtml(item.product.name)}</b>`,
+      `<b>Server: ${escapeHtml(item.product.server)}</b>`,
+      `<b>Data: ${escapeHtml(item.product.dataCap)}</b>`,
+      `<b>Duration: ${escapeHtml(item.product.duration)}</b>`,
+      `<b>Quantity: ${item.quantity}</b>`,
+      `<b>Total Paid: ${escapeHtml(formatKs(item.totalCost))}</b>`,
+      `<b>Payment: ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])}</b>`,
+      "<b>Credentials/Keys:</b>",
+      ...keyLines,
+    );
+  }
+
+  await respondMenu(
+    ctx,
+    blocks.join("\n"),
+    new InlineKeyboard().text("Back", "main:history"),
+    { rawHtml: true },
+  );
 }
 
 async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<void> {
@@ -1618,6 +1679,13 @@ bot.callbackQuery("main:history", async (ctx) => {
   if (!user) return;
   await ctx.answerCallbackQuery();
   await sendTransactionHistory(ctx, user.id);
+});
+
+bot.callbackQuery("history:purchased", async (ctx) => {
+  const user = ctx.state.dbUser;
+  if (!user) return;
+  await ctx.answerCallbackQuery();
+  await sendPurchasedItemsHistory(ctx, user.id);
 });
 
 bot.callbackQuery("main:guide", async (ctx) => {
