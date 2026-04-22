@@ -914,17 +914,36 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
 }
 async function sendPurchasePaymentChoice(ctx: BotContext, product: Product, quantity: number): Promise<void> {
   const total = product.price * quantity;
-  const text = [
-    "Confirm your purchase.",
+  const lines = [
+    "💠 Confirm your purchase.",
     "",
-    `Product: ${product.name}`,
-    `Quantity: ${quantity}`,
-    `Total Cost: ${formatKs(total)}`,
+    `🛍Product: ${product.name}`,
+    `💰 Quantity: ${quantity}`,
+    `💵 Total Cost: ${formatKs(total)}`,
     "",
     "Choose payment method:",
-  ].join("\n");
+  ];
+  const text = lines.join("\n");
 
-  await respondMenu(ctx, text, paymentChoiceKeyboard(product.id, quantity));
+  const lineOffsets: number[] = [];
+  let runningOffset = 0;
+  for (const line of lines) {
+    lineOffsets.push(runningOffset);
+    runningOffset += line.length + 1;
+  }
+
+  const entities: MessageEntity[] = [
+    { type: "custom_emoji", offset: lineOffsets[0], length: 2, custom_emoji_id: "4960766907113276588" }, // title
+    { type: "custom_emoji", offset: lineOffsets[3], length: 2, custom_emoji_id: "5301008864773159042" }, // quantity
+    { type: "custom_emoji", offset: lineOffsets[4], length: 2, custom_emoji_id: "5409048419211682843" }, // total
+    { type: "bold", offset: 0, length: text.length },
+  ];
+
+  try {
+    await respondMenuWithEntities(ctx, text, entities, paymentChoiceKeyboard(product.id, quantity));
+  } catch {
+    await respondMenu(ctx, text, paymentChoiceKeyboard(product.id, quantity));
+  }
 }
 
 async function processWalletPurchase(userId: number, product: Product, quantity: number) {
