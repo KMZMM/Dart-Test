@@ -44,6 +44,14 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   AYA_PAY: "AYA Pay",
 };
 
+const PURCHASE_EMOJI = {
+  TITLE_SUCCESS: "6267008582294705964",
+  PRODUCT: "6160983930158717740",
+  QUANTITY: "6163514786882526317",
+  TOTAL: "5409048419211682843",
+  BALANCE: "5258204546391351475",
+} as const;
+
 function formatKs(value: number): string {
   return `${value.toLocaleString("en-US")} Ks`;
 }
@@ -214,6 +222,44 @@ function escapeHtml(input: string): string {
 
 function boldText(text: string): string {
   return `<b>${escapeHtml(text)}</b>`;
+}
+
+function buildPurchaseSuccessHtml(params: {
+  title: string;
+  productName: string;
+  quantity: number;
+  totalPaid: number;
+  remainingBalance?: number;
+  keys?: string[];
+  note?: string;
+}): string {
+  const lines: string[] = [
+    `<tg-emoji emoji-id='${PURCHASE_EMOJI.TITLE_SUCCESS}'>✅</tg-emoji><b>${escapeHtml(params.title)}</b>`,
+    "",
+    `<tg-emoji emoji-id='${PURCHASE_EMOJI.PRODUCT}'>🛍</tg-emoji><b>Product: ${escapeHtml(params.productName)}</b>`,
+    `<tg-emoji emoji-id='${PURCHASE_EMOJI.QUANTITY}'>✅</tg-emoji><b>Quantity: ${params.quantity}</b>`,
+    `<tg-emoji emoji-id='${PURCHASE_EMOJI.TOTAL}'>💵</tg-emoji><b>Total Paid: ${escapeHtml(formatKs(params.totalPaid))}</b>`,
+  ];
+
+  if (typeof params.remainingBalance === "number") {
+    lines.push(`<tg-emoji emoji-id='${PURCHASE_EMOJI.BALANCE}'>💰</tg-emoji><b>Remaining Balance: ${escapeHtml(formatKs(params.remainingBalance))}</b>`);
+  }
+
+  lines.push("");
+
+  if (params.note) {
+    lines.push(`<b>${escapeHtml(params.note)}</b>`);
+  }
+
+  if (params.keys?.length) {
+    if (params.note) lines.push("");
+    lines.push("<b>Keys:</b>");
+    for (const [index, key] of params.keys.entries()) {
+      lines.push(`<b>${index + 1}. </b><code>${escapeHtml(key)}</code>`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function mainMenuKeyboard() {
@@ -1476,33 +1522,24 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
     if (result.deliveryMode === "OUTLINE") {
       try {
         const keys = await generateOutlineKeys(user, product, quantity);
-        await ctx.reply(
-          [
-            "Purchase Successful",
-            "",
-            `Product: ${product.name}`,
-            `Quantity: ${quantity}`,
-            `Total Paid: ${formatKs(result.totalCost)}`,
-            `Remaining Balance: ${formatKs(result.newBalance)}`,
-            "",
-            "Keys:",
-            ...keys.map((key, index) => `${index + 1}. ${key}`),
-          ].join("\n"),
-        );
+        await ctx.reply(buildPurchaseSuccessHtml({
+          title: "Purchase Successful",
+          productName: product.name,
+          quantity,
+          totalPaid: result.totalCost,
+          remainingBalance: result.newBalance,
+          keys,
+        }), { parse_mode: "HTML" });
         await sendSuccessInstructionsToUser(user.telegramId, product);
       } catch (error) {
-        await ctx.reply(
-          [
-            "Purchase Successful",
-            "",
-            `Product: ${product.name}`,
-            `Quantity: ${quantity}`,
-            `Total Paid: ${formatKs(result.totalCost)}`,
-            `Remaining Balance: ${formatKs(result.newBalance)}`,
-            "",
-            "Payment confirmed. Key delivery is processing. Please wait.",
-          ].join("\n"),
-        );
+        await ctx.reply(buildPurchaseSuccessHtml({
+          title: "Purchase Successful",
+          productName: product.name,
+          quantity,
+          totalPaid: result.totalCost,
+          remainingBalance: result.newBalance,
+          note: "Payment confirmed. Key delivery is processing. Please wait.",
+        }), { parse_mode: "HTML" });
         await notifyAdminsOutlineDeliveryIssue(
           result.purchaseId,
           user,
@@ -1515,18 +1552,14 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
     }
 
     if (result.deliveryMode === "MANUAL") {
-      await ctx.reply(
-        [
-          "Purchase Successful",
-          "",
-          `Product: ${product.name}`,
-          `Quantity: ${quantity}`,
-          `Total Paid: ${formatKs(result.totalCost)}`,
-          `Remaining Balance: ${formatKs(result.newBalance)}`,
-          "",
-          "Your order requires manual delivery. Admin will send your key soon.",
-        ].join("\n"),
-      );
+      await ctx.reply(buildPurchaseSuccessHtml({
+        title: "Purchase Successful",
+        productName: product.name,
+        quantity,
+        totalPaid: result.totalCost,
+        remainingBalance: result.newBalance,
+        note: "Your order requires manual delivery. Admin will send your key soon.",
+      }), { parse_mode: "HTML" });
       await sendSuccessInstructionsToUser(user.telegramId, product);
 
       await notifyAdminsManualWalletPurchase(
@@ -1540,19 +1573,14 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
       return;
     }
 
-    await ctx.reply(
-      [
-        "Purchase Successful",
-        "",
-        `Product: ${product.name}`,
-        `Quantity: ${quantity}`,
-        `Total Paid: ${formatKs(result.totalCost)}`,
-        `Remaining Balance: ${formatKs(result.newBalance)}`,
-        "",
-        "Keys:",
-        ...result.keys.map((key, index) => `${index + 1}. ${key}`),
-      ].join("\n"),
-    );
+    await ctx.reply(buildPurchaseSuccessHtml({
+      title: "Purchase Successful",
+      productName: product.name,
+      quantity,
+      totalPaid: result.totalCost,
+      remainingBalance: result.newBalance,
+      keys: result.keys,
+    }), { parse_mode: "HTML" });
     await sendSuccessInstructionsToUser(user.telegramId, product);
     await sendMainMenu(ctx, user.id);
     return;
@@ -1662,28 +1690,27 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
         const keys = await generateOutlineKeys(result.user, result.product, result.purchase.quantity);
         await bot.api.sendMessage(
           result.user.telegramId.toString(),
-          [
-            "Payment Confirmed",
-            "",
-            `Product: ${result.product.name}`,
-            `Quantity: ${result.purchase.quantity}`,
-            "",
-            "Keys:",
-            ...keys.map((key, index) => `${index + 1}. ${key}`),
-          ].join("\n"),
+          buildPurchaseSuccessHtml({
+            title: "Payment Confirmed",
+            productName: result.product.name,
+            quantity: result.purchase.quantity,
+            totalPaid: result.purchase.totalCost,
+            keys,
+          }),
+          { parse_mode: "HTML" },
         );
         await sendSuccessInstructionsToUser(result.user.telegramId, result.product);
       } catch (error) {
         await bot.api.sendMessage(
           result.user.telegramId.toString(),
-          [
-            "Payment Confirmed",
-            "",
-            `Product: ${result.product.name}`,
-            `Quantity: ${result.purchase.quantity}`,
-            "",
-            "Payment confirmed. Key delivery is processing. Please wait.",
-          ].join("\n"),
+          buildPurchaseSuccessHtml({
+            title: "Payment Confirmed",
+            productName: result.product.name,
+            quantity: result.purchase.quantity,
+            totalPaid: result.purchase.totalCost,
+            note: "Payment confirmed. Key delivery is processing. Please wait.",
+          }),
+          { parse_mode: "HTML" },
         );
         await notifyAdminsOutlineDeliveryIssue(
           result.purchase.id,
@@ -1699,24 +1726,21 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
     }
 
     const message = result.deliveryMode === "MANUAL"
-      ? [
-        "Payment Confirmed",
-        "",
-        `Product: ${result.product.name}`,
-        `Quantity: ${result.purchase.quantity}`,
-        "",
-        "Your order requires manual key delivery. Admin will send it soon.",
-      ].join("\n")
-      : [
-        "Payment Confirmed",
-        "",
-        `Product: ${result.product.name}`,
-        `Quantity: ${result.purchase.quantity}`,
-        "",
-        "Keys:",
-        ...result.keys.map((key, index) => `${index + 1}. ${key}`),
-      ].join("\n");
-    await bot.api.sendMessage(result.user.telegramId.toString(), message);
+      ? buildPurchaseSuccessHtml({
+        title: "Payment Confirmed",
+        productName: result.product.name,
+        quantity: result.purchase.quantity,
+        totalPaid: result.purchase.totalCost,
+        note: "Your order requires manual key delivery. Admin will send it soon.",
+      })
+      : buildPurchaseSuccessHtml({
+        title: "Payment Confirmed",
+        productName: result.product.name,
+        quantity: result.purchase.quantity,
+        totalPaid: result.purchase.totalCost,
+        keys: result.keys,
+      });
+    await bot.api.sendMessage(result.user.telegramId.toString(), message, { parse_mode: "HTML" });
     await sendSuccessInstructionsToUser(result.user.telegramId, result.product);
     await sendMainMenuToChat(result.user.telegramId);
     await ctx.answerCallbackQuery({ text: "Purchase approved" });
