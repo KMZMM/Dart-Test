@@ -153,7 +153,14 @@ function parseSuccessInstructions(value: Prisma.JsonValue | null): SuccessInstru
 }
 
 async function sendSuccessInstructionsToUser(telegramId: bigint, product: Product): Promise<void> {
-  const payload = parseSuccessInstructions(product.successInstructions as Prisma.JsonValue | null);
+  let payload = parseSuccessInstructions(product.successInstructions as Prisma.JsonValue | null);
+  if (!payload) {
+    const categoryContent = await (prisma as any).productCategoryContent.findUnique({
+      where: { subCategory: product.subCategory },
+      select: { instruction: true },
+    });
+    payload = parseSuccessInstructions(categoryContent?.instruction as Prisma.JsonValue | null);
+  }
   if (!payload) {
     return;
   }
@@ -279,13 +286,13 @@ function guideMenuKeyboard(): InlineKeyboard {
   } as any;
 }
 
-function productDetailsKeyboard(productId: number): InlineKeyboard {
+function productDetailsKeyboard(productId: number, subCategory: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Buy 1", `buy1:${productId}`)
     .row()
     .text("Buy Multiple", `buym:${productId}`)
     .row()
-    .text("Back", "main:buyvpn");
+    .text("Back", `cat:${encodeURIComponent(subCategory)}`);
 }
 
 function paymentChoiceKeyboard(productId: number, quantity: number) {
@@ -314,9 +321,9 @@ function adminPurchaseKeyboard(purchaseId: number): InlineKeyboard {
 }
 
 function buildMainMenuText(user: User): { text: string; entities: MessageEntity[] } {
-  const line1 = `👤 ${displayName(user)}`;
-  const line2 = `🆔 ${user.telegramId.toString()}`;
-  const line3 = `👛 ${formatKs(user.balance)}`;
+  const line1 = `\u{1F464} ${displayName(user)}`;
+  const line2 = `\u{1F194} ${user.telegramId.toString()}`;
+  const line3 = `\u{1F45B} ${formatKs(user.balance)}`;
   const text = [line1, line2, line3].join("\n");
   const offset2 = line1.length + 1;
   const offset3 = offset2 + line2.length + 1;
@@ -762,16 +769,58 @@ async function resolveAdminTelegramIds(): Promise<bigint[]> {
   return Array.from(ids, (id) => BigInt(id));
 }
 
-async function sendProductList(ctx: BotContext): Promise<void> {
+function formatCategoryTitle(subCategory: string): string {
+  if (subCategory === "ALL_SIM_WIFI_VPN_KEYS") return "All Sim and Wifi Vpn Keys";
+  return subCategory
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+async function sendCategoryList(ctx: BotContext): Promise<void> {
+  const categories = await prisma.product.findMany({
+    where: { isActive: true },
+    select: { subCategory: true },
+    distinct: ["subCategory"],
+    orderBy: { subCategory: "asc" },
+  });
+
+  if (!categories.length) {
+    await respondMenu(ctx, "No categories available right now.", new InlineKeyboard().text("Back", "main:menu"));
+    return;
+  }
+
+  const meta = await (prisma as any).productCategoryContent.findMany({
+    where: { subCategory: { in: categories.map((c) => c.subCategory) } },
+    select: { subCategory: true, title: true },
+  });
+  const titleByCategory = new Map((meta as Array<{ subCategory: string; title: string }>).map((item) => [item.subCategory, item.title]));
+
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  let row: Array<{ text: string; callback_data: string }> = [];
+  for (const category of categories) {
+    const title = titleByCategory.get(category.subCategory)?.trim() || formatCategoryTitle(category.subCategory);
+    row.push({ text: title, callback_data: `cat:${encodeURIComponent(category.subCategory)}` });
+    if (row.length === 2) {
+      rows.push(row);
+      row = [];
+    }
+  }
+  if (row.length > 0) rows.push(row);
+  rows.push([{ text: "Back", callback_data: "main:menu" }]);
+
+  await respondMenu(ctx, "Choose a category:", { inline_keyboard: rows });
+}
+
+async function sendProductList(ctx: BotContext, subCategory: string): Promise<void> {
   const products = await prisma.product.findMany({
-    where: {
-      isActive: true,
-    },
-    orderBy: [{ category: "asc" }, { subCategory: "asc" }, { price: "asc" }, { name: "asc" }],
+    where: { isActive: true, subCategory },
+    orderBy: [{ price: "asc" }, { name: "asc" }],
   });
 
   if (!products.length) {
-    await respondMenu(ctx, "No products available right now.", new InlineKeyboard().text("Back", "main:menu"));
+    await respondMenu(ctx, "No products in this category right now.", new InlineKeyboard().text("Back", "main:buyvpn"));
     return;
   }
 
@@ -779,10 +828,7 @@ async function sendProductList(ctx: BotContext): Promise<void> {
   const stockGroups = finiteProductIds.length
     ? await prisma.vpnKey.groupBy({
       by: ["productId"],
-      where: {
-        status: "AVAILABLE",
-        productId: { in: finiteProductIds },
-      },
+      where: { status: "AVAILABLE", productId: { in: finiteProductIds } },
       _count: { _all: true },
     })
     : [];
@@ -791,22 +837,26 @@ async function sendProductList(ctx: BotContext): Promise<void> {
   );
 
   const rows: Array<Array<{ text: string; callback_data: string; icon_custom_emoji_id?: string }>> = [];
-
   for (const product of products) {
     const stockLabel = product.stockMode === "UNLIMITED"
       ? "(∞)"
       : `(${stockByProduct.get(product.id) ?? 0})`;
     rows.push([{
       text: `${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`,
-      callback_data: `prod:${product.id}`,
-      icon_custom_emoji_id: "6082614104290232643",
+      callback_data: `prod:${product.id}`
     }]);
   }
-  rows.push([{ text: "Back", callback_data: "main:menu" }]);
+  rows.push([{ text: "Back", callback_data: "main:buyvpn" }]);
 
   await respondMenu(ctx, "Product List", { inline_keyboard: rows });
 }
+
 async function sendProductDetails(ctx: BotContext, product: Product): Promise<void> {
+  const categoryContent = await (prisma as any).productCategoryContent.findUnique({
+    where: { subCategory: product.subCategory },
+    select: { productInfo: true },
+  });
+  const sharedInfo = categoryContent?.productInfo?.trim() || "";
   const stockText = product.stockMode === "UNLIMITED" ? "Unlimited" : "Limited";
   const text = [
     "Product Details",
@@ -817,6 +867,9 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
     `Stock: ${stockText}`,
     `Price: ${formatKs(product.price)}/month`,
     "",
+    "Product Info:",
+    sharedInfo || "-",
+    "",
     "Warning:",
     product.warning?.trim() || "-",
     "",
@@ -824,9 +877,8 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
     product.notes || "- The key will expire after the duration ends.\n- Do not share your key.\n- No refund after activation.",
   ].join("\n");
 
-  await respondMenu(ctx, text, productDetailsKeyboard(product.id));
+  await respondMenu(ctx, text, productDetailsKeyboard(product.id, product.subCategory));
 }
-
 async function sendPurchasePaymentChoice(ctx: BotContext, product: Product, quantity: number): Promise<void> {
   const total = product.price * quantity;
   const text = [
@@ -1295,7 +1347,13 @@ bot.callbackQuery("buy:cancel", async (ctx) => {
 
 bot.callbackQuery("main:buyvpn", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await sendProductList(ctx);
+  await sendCategoryList(ctx);
+});
+
+bot.callbackQuery(/^cat:(.+)$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const subCategory = decodeURIComponent(ctx.match[1]);
+  await sendProductList(ctx, subCategory);
 });
 
 bot.callbackQuery(/^prod:(\d+)$/, async (ctx) => {
@@ -1777,8 +1835,8 @@ bot.on("message:photo", async (ctx) => {
       `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
       "Status: Pending Approval",
     ].join("\n");
-    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textProcessing, { inline_keyboard: [[{ text: "⬅️ Main Menu", callback_data: "main:menu" }]] }))) {
-      await respondMenu(ctx, textProcessing, new InlineKeyboard().text("⬅️ Main Menu", "main:menu"));
+    if (!(await editKnownUiMessage(ctx, data.uiMessageId, textProcessing, { inline_keyboard: [[{ text: "Main Menu", callback_data: "main:menu" }]] }))) {
+      await respondMenu(ctx, textProcessing, new InlineKeyboard().text("Main Menu", "main:menu"));
     }
 
     const adminNotified = await notifyAdminsTopup(
@@ -1837,7 +1895,7 @@ bot.on("message:photo", async (ctx) => {
         `Method: ${PAYMENT_METHOD_LABELS[data.paymentMethod]}`,
         "Status: Pending Approval",
       ].join("\n"),
-      new InlineKeyboard().text("⬅️ Main Menu", "main:menu"),
+      new InlineKeyboard().text("Main Menu", "main:menu"),
     );
 
     const adminNotified = await notifyAdminsPurchase(

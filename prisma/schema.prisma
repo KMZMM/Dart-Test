@@ -101,6 +101,16 @@ model Product {
   purchases Purchase[]
 }
 
+model ProductCategoryContent {
+  id          Int      @id @default(autoincrement())
+  subCategory String   @unique
+  title       String   @default("")
+  productInfo String   @default("")
+  instruction Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model VpnKey {
   id               Int         @id @default(autoincrement())
   productId        Int

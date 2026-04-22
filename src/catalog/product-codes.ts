@@ -22,6 +22,13 @@ export type ProductCatalogItem = {
   successInstructions: SuccessInstructionsPayload;
 };
 
+export type ProductCategoryContentItem = {
+  subCategory: string;
+  title: string;
+  productInfo: string;
+  instruction: SuccessInstructionsPayload;
+};
+
 export const PRODUCT_CATALOG: ProductCatalogItem[] = [
   {
     code: "OUTLINE_SG_100GB_1M",
@@ -120,6 +127,18 @@ export const PRODUCT_CATALOG: ProductCatalogItem[] = [
   },
 ];
 
+export const PRODUCT_CATEGORY_CONTENTS: ProductCategoryContentItem[] = [
+  {
+    subCategory: "ALL_SIM_WIFI_VPN_KEYS",
+    title: "All Sim and Wifi Vpn Keys",
+    productInfo: "For all SIM and WiFi users. Key is valid for one device at a time.",
+    instruction: {
+      type: "text",
+      text: "How to use your key:\n1. Install Outline app.\n2. Paste your key.\n3. Connect.",
+    },
+  },
+];
+
 export async function syncCatalogProducts(prisma: PrismaClient): Promise<number> {
   const catalogCodes = PRODUCT_CATALOG.map((item) => item.code);
 
@@ -144,6 +163,23 @@ export async function syncCatalogProducts(prisma: PrismaClient): Promise<number>
       update: {
         ...product,
         isActive: true,
+      },
+    });
+  }
+
+  for (const item of PRODUCT_CATEGORY_CONTENTS) {
+    await (prisma as any).productCategoryContent.upsert({
+      where: { subCategory: item.subCategory },
+      create: {
+        subCategory: item.subCategory,
+        title: item.title,
+        productInfo: item.productInfo,
+        instruction: item.instruction as unknown as object,
+      },
+      update: {
+        title: item.title,
+        productInfo: item.productInfo,
+        instruction: item.instruction as unknown as object,
       },
     });
   }
