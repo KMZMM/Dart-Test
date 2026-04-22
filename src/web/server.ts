@@ -89,22 +89,23 @@ function parseInstruction(value: unknown): InstructionPayload | null {
   return null;
 }
 
-function instructionToForm(instruction: InstructionPayload | null): { type: "text" | "video" | "images"; value: string } {
-  if (!instruction) return { type: "text", value: "" };
-  if (instruction.type === "text") return { type: "text", value: instruction.text };
-  if (instruction.type === "video") return { type: "video", value: instruction.url };
-  return { type: "images", value: instruction.urls.join("\n") };
+function instructionToForm(instruction: InstructionPayload | null): { type: "text" | "video" | "images"; value: string; caption: string } {
+  if (!instruction) return { type: "text", value: "", caption: "" };
+  if (instruction.type === "text") return { type: "text", value: instruction.text, caption: "" };
+  if (instruction.type === "video") return { type: "video", value: instruction.url, caption: instruction.caption || "" };
+  return { type: "images", value: instruction.urls.join("\n"), caption: instruction.caption || "" };
 }
 
-function parseInstructionFromForm(typeRaw: string, valueRaw: string): InstructionPayload | null {
+function parseInstructionFromForm(typeRaw: string, valueRaw: string, captionRaw: string): InstructionPayload | null {
   const type = typeRaw === "video" || typeRaw === "images" ? typeRaw : "text";
   const value = valueRaw.trim();
+  const caption = captionRaw.trim();
   if (!value) return null;
   if (type === "text") return { type: "text", text: value };
-  if (type === "video") return { type: "video", url: value };
+  if (type === "video") return { type: "video", url: value, caption: caption || undefined };
   const urls = value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   if (!urls.length) return null;
-  return { type: "images", urls };
+  return { type: "images", urls, caption: caption || undefined };
 }
 
 function instructionPreview(instruction: InstructionPayload | null): string {
@@ -254,6 +255,8 @@ async function renderGroupSection(group: ProductGroup): Promise<string> {
           </select>
           <label>Instruction Value</label>
           <textarea name="instructionValue" placeholder="Text or URL(s)">${escapeHtml(instructionForm.value)}</textarea>
+          <label>Instruction Caption (for video/images)</label>
+          <textarea name="instructionCaption" placeholder="Optional caption">${escapeHtml(instructionForm.caption)}</textarea>
           <button class="btn" type="submit">Save Category Content</button>
           <div class="muted">Current: ${escapeHtml(instructionPreview(group.instruction))}</div>
         </form>
@@ -283,8 +286,8 @@ async function renderGroupSection(group: ProductGroup): Promise<string> {
           <option value="true">Auto Fulfill</option>
           <option value="false">Manual Fulfill</option>
         </select>
-        <input name="warning" placeholder="Warning text" />
-        <input name="notes" placeholder="Notes text" />
+        <textarea name="warning" placeholder="Warning text (multiline supported)"></textarea>
+        <textarea name="notes" placeholder="Notes text (multiline supported)"></textarea>
         <button class="btn" type="submit">Add Item</button>
       </form>
     </div>
@@ -403,13 +406,14 @@ async function main() {
     const productInfo = String(req.body.productInfo || "").trim();
     const instructionType = String(req.body.instructionType || "text").trim();
     const instructionValue = String(req.body.instructionValue || "");
+    const instructionCaption = String(req.body.instructionCaption || "");
 
     if (!group) {
       res.redirect("/admin?message=Invalid%20category");
       return;
     }
 
-    const instruction = parseInstructionFromForm(instructionType, instructionValue);
+    const instruction = parseInstructionFromForm(instructionType, instructionValue, instructionCaption);
     await (prisma as any).productCategoryContent.upsert({
       where: { subCategory: group },
       create: {
