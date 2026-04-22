@@ -797,11 +797,15 @@ async function sendCategoryList(ctx: BotContext): Promise<void> {
   });
   const titleByCategory = new Map((meta as Array<{ subCategory: string; title: string }>).map((item) => [item.subCategory, item.title]));
 
-  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
-  let row: Array<{ text: string; callback_data: string }> = [];
+  const rows: Array<Array<{ text: string; callback_data: string; icon_custom_emoji_id?: string }>> = [];
+  let row: Array<{ text: string; callback_data: string; icon_custom_emoji_id?: string }> = [];
   for (const category of categories) {
     const title = titleByCategory.get(category.subCategory)?.trim() || formatCategoryTitle(category.subCategory);
-    row.push({ text: title, callback_data: `cat:${encodeURIComponent(category.subCategory)}` });
+    row.push({
+      text: title,
+      callback_data: `cat:${encodeURIComponent(category.subCategory)}`,
+      icon_custom_emoji_id: "6037533655105016950",
+    });
     if (row.length === 2) {
       rows.push(row);
       row = [];
@@ -843,7 +847,8 @@ async function sendProductList(ctx: BotContext, subCategory: string): Promise<vo
       : `(${stockByProduct.get(product.id) ?? 0})`;
     rows.push([{
       text: `${product.name} | ${stockLabel} | ${formatKs(product.price)}/month`,
-      callback_data: `prod:${product.id}`
+      callback_data: `prod:${product.id}`,
+      icon_custom_emoji_id: "6082614104290232643",
     }]);
   }
   rows.push([{ text: "Back", callback_data: "main:buyvpn" }]);
