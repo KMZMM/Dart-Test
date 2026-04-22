@@ -141,9 +141,10 @@ function renderLayout(title: string, body: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
   <style>
+    * { box-sizing: border-box; }
     body { font-family: Arial, sans-serif; margin: 0; background: #f6f8fb; color: #111; }
-    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px; }
-    .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 14px; }
+    .card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
     h1, h2, h3 { margin: 0 0 12px; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
@@ -157,10 +158,29 @@ function renderLayout(title: string, body: string): string {
     .btn { background: #1a73e8; color: #fff; border: none; }
     .btn-danger { background: #cf2338; color: #fff; border: none; }
     .btn-secondary { background: #3f4d64; color: #fff; border: none; }
-    table { width: 100%; border-collapse: collapse; }
+    .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; min-width: 620px; }
     th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
     .muted { color: #5d6575; font-size: 13px; }
     .stack { display: grid; gap: 10px; }
+    code { word-break: break-all; white-space: pre-wrap; display: block; }
+    @media (max-width: 720px) {
+      .wrap { padding: 10px; }
+      .card { padding: 12px; border-radius: 10px; }
+      h1 { font-size: 20px; }
+      h2 { font-size: 18px; }
+      h3 { font-size: 16px; }
+      .grid { grid-template-columns: 1fr; }
+      .row > * { width: 100%; }
+      input, textarea, select, button { width: 100%; }
+      .table-wrap { overflow-x: visible; }
+      table { min-width: 0; }
+      thead { display: none; }
+      tbody, tr, td { display: block; width: 100%; }
+      tr { border: 1px solid #edf0f5; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #fff; }
+      td { border-bottom: none; padding: 4px 0; }
+      td::before { content: attr(data-label) ": "; font-weight: 700; color: #3d4758; }
+    }
   </style>
 </head>
 <body>
@@ -222,21 +242,21 @@ async function renderUserHistoryPage(tokenRaw: unknown): Promise<string> {
 
     const topupRows = topups.map((item) => `
       <tr>
-        <td>${escapeHtml(formatDate(item.createdAt))}</td>
-        <td>${escapeHtml(formatKs(item.amount))}</td>
-        <td>${escapeHtml(item.paymentMethod)}</td>
-        <td>${escapeHtml(item.status)}</td>
+        <td data-label="Date">${escapeHtml(formatDate(item.createdAt))}</td>
+        <td data-label="Amount">${escapeHtml(formatKs(item.amount))}</td>
+        <td data-label="Method">${escapeHtml(item.paymentMethod)}</td>
+        <td data-label="Status">${escapeHtml(item.status)}</td>
       </tr>
     `).join("");
 
     const purchaseRows = purchases.map((item) => `
       <tr>
-        <td>${escapeHtml(formatDate(item.createdAt))}</td>
-        <td>${escapeHtml(item.product.name)}</td>
-        <td>${item.quantity}</td>
-        <td>${escapeHtml(formatKs(item.totalCost))}</td>
-        <td>${escapeHtml(item.paymentMethod)}</td>
-        <td>${escapeHtml(item.status)}</td>
+        <td data-label="Date">${escapeHtml(formatDate(item.createdAt))}</td>
+        <td data-label="Product">${escapeHtml(item.product.name)}</td>
+        <td data-label="Qty">${item.quantity}</td>
+        <td data-label="Total">${escapeHtml(formatKs(item.totalCost))}</td>
+        <td data-label="Method">${escapeHtml(item.paymentMethod)}</td>
+        <td data-label="Status">${escapeHtml(item.status)}</td>
       </tr>
     `).join("");
 
@@ -247,17 +267,21 @@ async function renderUserHistoryPage(tokenRaw: unknown): Promise<string> {
       </div>
       <div class="card">
         <h2>Top-Ups</h2>
-        <table>
-          <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
-          <tbody>${topupRows || "<tr><td colspan='4'>No top-up records.</td></tr>"}</tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
+            <tbody>${topupRows || "<tr><td data-label='Info' colspan='4'>No top-up records.</td></tr>"}</tbody>
+          </table>
+        </div>
       </div>
       <div class="card">
         <h2>Purchases</h2>
-        <table>
-          <thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Method</th><th>Status</th></tr></thead>
-          <tbody>${purchaseRows || "<tr><td colspan='6'>No purchase records.</td></tr>"}</tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Method</th><th>Status</th></tr></thead>
+            <tbody>${purchaseRows || "<tr><td data-label='Info' colspan='6'>No purchase records.</td></tr>"}</tbody>
+          </table>
+        </div>
       </div>
     `);
   }
