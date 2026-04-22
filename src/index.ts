@@ -470,11 +470,18 @@ function mainMenuKeyboard() {
           icon_custom_emoji_id: "5452026937172048380",
         },
       ],
-      [{
-        text: "Join Channel",
-        url: config.channelLink,
-        icon_custom_emoji_id: "5866355487255039002",
-      }],
+      [
+        {
+          text: "Join Channel",
+          url: config.channelLink,
+          icon_custom_emoji_id: "5866355487255039002",
+        },
+        {
+          text: "Contact Admin",
+          url: "https://t.me/y_e_h_t_u_t",
+          icon_custom_emoji_id: "5237697567906617034",
+        },
+      ],
       [{
         text: "Top Up",
         callback_data: "main:topup",
