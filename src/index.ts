@@ -519,6 +519,16 @@ async function sendMainMenu(ctx: BotContext, userId: number): Promise<void> {
   await respondMenuWithEntities(ctx, main.text, main.entities, mainMenuKeyboard());
 }
 
+async function sendMainMenuToChat(telegramId: bigint): Promise<void> {
+  const freshUser = await prisma.user.findUnique({ where: { telegramId } });
+  if (!freshUser) return;
+  const main = buildMainMenuText(freshUser);
+  await bot.api.sendMessage(telegramId.toString(), main.text, {
+    entities: main.entities,
+    reply_markup: mainMenuKeyboard(),
+  });
+}
+
 async function sendTopUpHistory(ctx: BotContext, userId: number): Promise<void> {
   const requests = await prisma.topUpRequest.findMany({
     where: { userId },
@@ -863,54 +873,20 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
   });
   const sharedInfo = categoryContent?.productInfo?.trim() || "";
   const stockText = product.stockMode === "UNLIMITED" ? "Unlimited" : "Limited";
-
-  const lines = [
-    "💠 Product Details",
+  const text = [
+    `<tg-emoji emoji-id='4960766907113276588'>💠</tg-emoji><b> Product Details</b>`,
     "",
-    `👍 Server: ${product.server}`,
-    `🌐 Data: ${product.dataCap}`,
-    `⏱ Duration: ${product.duration}`,
-    `📈 Stock: ${stockText}`,
-    `💵 Price: ${formatKs(product.price)}/month`,
+    `<tg-emoji emoji-id='6082614104290232643'>👍</tg-emoji><b> Server: ${escapeHtml(product.server)}</b>`,
+    `<tg-emoji emoji-id='6082116463609517673'>🌐</tg-emoji><b> Data: ${escapeHtml(product.dataCap)}</b>`,
+    `<tg-emoji emoji-id='5909068103790106321'>⏱</tg-emoji><b> Duration: ${escapeHtml(product.duration)}</b>`,
+    `<tg-emoji emoji-id='5449872877929127395'>📈</tg-emoji><b> Stock: ${escapeHtml(stockText)}</b>`,
+    `<tg-emoji emoji-id='5409048419211682843'>💵</tg-emoji><b> Price: ${escapeHtml(formatKs(product.price))}/month</b>`,
     "",
-    `😩 Product Info:\n${sharedInfo || "-"}`,
-  ];
-  const text = lines.join("\n");
+    `<tg-emoji emoji-id='5445375244011328755'>😩</tg-emoji><b> Product Info:</b>`,
+    `<b>${escapeHtml(sharedInfo || "-")}</b>`,
+  ].join("\n");
 
-  const emojiSpecs: Array<{ lineIndex: number; emojiId: string }> = [
-    { lineIndex: 0, emojiId: "4960766907113276588" }, // Product Details
-    { lineIndex: 2, emojiId: "6082614104290232643" }, // Server
-    { lineIndex: 3, emojiId: "6082116463609517673" }, // Data
-    { lineIndex: 4, emojiId: "5909068103790106321" }, // Duration
-    { lineIndex: 5, emojiId: "5449872877929127395" }, // Stock
-    { lineIndex: 6, emojiId: "5409048419211682843" }, // Price
-    { lineIndex: 8, emojiId: "5445375244011328755" }, // Product Info
-  ];
-
-  const lineOffsets: number[] = [];
-  let runningOffset = 0;
-  for (const line of lines) {
-    lineOffsets.push(runningOffset);
-    runningOffset += line.length + 1; // + "\n"
-  }
-
-  const entities: MessageEntity[] = emojiSpecs.map((spec) => ({
-    type: "custom_emoji",
-    offset: lineOffsets[spec.lineIndex],
-    length: 2, // one emoji surrogate pair
-    custom_emoji_id: spec.emojiId,
-  }));
-  entities.push({
-    type: "bold",
-    offset: 0,
-    length: text.length,
-  });
-
-  try {
-    await respondMenuWithEntities(ctx, text, entities, productDetailsKeyboard(product.id, product.subCategory));
-  } catch {
-    await respondMenu(ctx, text, productDetailsKeyboard(product.id, product.subCategory));
-  }
+  await respondMenu(ctx, text, productDetailsKeyboard(product.id, product.subCategory), { rawHtml: true });
 }
 async function sendPurchasePaymentChoice(ctx: BotContext, product: Product, quantity: number): Promise<void> {
   const total = product.price * quantity;
@@ -1468,14 +1444,29 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
     const result = await processWalletPurchase(user.id, product, quantity);
     if (!result.ok) {
       if (result.reason === "INSUFFICIENT_BALANCE") {
-        await ctx.reply("Insufficient balance. Please top up your account.");
+        await clearSession(user.id);
+        await respondMenu(
+          ctx,
+          "Insufficient balance. Please top up your account.",
+          new InlineKeyboard().text("Main Menu", "main:menu"),
+        );
         return;
       }
       if (result.reason === "OUT_OF_STOCK") {
-        await ctx.reply("Not enough keys in stock for this quantity.");
+        await clearSession(user.id);
+        await respondMenu(
+          ctx,
+          "Not enough keys in stock for this quantity.",
+          new InlineKeyboard().text("Main Menu", "main:menu"),
+        );
         return;
       }
-      await ctx.reply("Purchase failed. Please try again.");
+      await clearSession(user.id);
+      await respondMenu(
+        ctx,
+        "Purchase failed. Please try again.",
+        new InlineKeyboard().text("Main Menu", "main:menu"),
+      );
       return;
     }
 
@@ -1518,6 +1509,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
           error instanceof Error ? error.message : String(error),
         );
       }
+      await sendMainMenu(ctx, user.id);
       return;
     }
 
@@ -1543,6 +1535,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
         quantity,
         result.totalCost,
       );
+      await sendMainMenu(ctx, user.id);
       return;
     }
 
@@ -1560,6 +1553,7 @@ bot.callbackQuery(/^pay:(WALLET|KBZ_PAY|WAVE_PAY|UAB_PAY|AYA_PAY):(\d+):(\d+)$/,
       ].join("\n"),
     );
     await sendSuccessInstructionsToUser(user.telegramId, product);
+    await sendMainMenu(ctx, user.id);
     return;
   }
 
@@ -1640,6 +1634,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
           `New Balance: ${formatKs(result.newBalance)}`,
         ].join("\n"),
       );
+      await sendMainMenuToChat(result.user.telegramId);
       await ctx.answerCallbackQuery({ text: "Top-up approved" });
       await ctx.reply(`Top-up #${id} approved.`);
     } else {
@@ -1647,6 +1642,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
         result.user.telegramId.toString(),
         "Top-Up Failed\n\nPlease contact support or try again.",
       );
+      await sendMainMenuToChat(result.user.telegramId);
       await ctx.answerCallbackQuery({ text: "Top-up rejected" });
       await ctx.reply(`Top-up #${id} rejected.`);
     }
@@ -1695,6 +1691,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
           error instanceof Error ? error.message : String(error),
         );
       }
+      await sendMainMenuToChat(result.user.telegramId);
       await ctx.answerCallbackQuery({ text: "Purchase approved" });
       await ctx.reply(`Purchase #${id} approved.`);
       return;
@@ -1720,6 +1717,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
       ].join("\n");
     await bot.api.sendMessage(result.user.telegramId.toString(), message);
     await sendSuccessInstructionsToUser(result.user.telegramId, result.product);
+    await sendMainMenuToChat(result.user.telegramId);
     await ctx.answerCallbackQuery({ text: "Purchase approved" });
     await ctx.reply(`Purchase #${id} approved.`);
     return;
@@ -1730,6 +1728,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
       result.user.telegramId.toString(),
       "Payment not approved because keys are out of stock. Please contact support.",
     );
+    await sendMainMenuToChat(result.user.telegramId);
     await ctx.answerCallbackQuery({ text: "Rejected - out of stock" });
     await ctx.reply(`Purchase #${id} rejected (insufficient stock).`);
     return;
@@ -1739,6 +1738,7 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
     result.user.telegramId.toString(),
     "Payment not approved. Please contact support.",
   );
+  await sendMainMenuToChat(result.user.telegramId);
   await ctx.answerCallbackQuery({ text: "Purchase rejected" });
   await ctx.reply(`Purchase #${id} rejected.`);
 });
