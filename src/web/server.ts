@@ -4,12 +4,14 @@ import session from "express-session";
 import { Product, ProductProvider, StockMode, VpnKeyStatus } from "@prisma/client";
 import { prisma } from "../prisma";
 import { syncCatalogProducts } from "../catalog/product-codes";
+import { verifyUserViewToken } from "../shared/user-view-links";
 
 dotenv.config();
 
 const ADMIN_USERNAME = process.env.ADMIN_PANEL_USERNAME?.trim() || "YeHtut";
 const ADMIN_PASSWORD = process.env.ADMIN_PANEL_PASSWORD?.trim() || "KMZgaming";
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET?.trim() || "techstore-admin-session";
+const USER_VIEW_LINK_SECRET = process.env.USER_VIEW_LINK_SECRET?.trim() || "";
 
 const PRODUCT_GROUP_LABELS: Record<string, string> = {
   ALL_SIM_WIFI_VPN_KEYS: "All Sim and Wifi Vpn Keys",
@@ -47,6 +49,14 @@ function escapeHtml(value: string): string {
 function getFlashMessage(query: unknown): string {
   const raw = typeof query === "string" ? query : "";
   return raw ? escapeHtml(raw) : "";
+}
+
+function formatKs(value: number): string {
+  return `${value.toLocaleString("en-US")} Ks`;
+}
+
+function formatDate(date: Date): string {
+  return date.toISOString().replace("T", " ").slice(0, 16);
 }
 
 function humanizeCode(value: string): string {
@@ -157,6 +167,141 @@ function renderLayout(title: string, body: string): string {
   <div class="wrap">${body}</div>
 </body>
 </html>`;
+}
+
+async function renderUserHistoryPage(tokenRaw: unknown): Promise<string> {
+  if (!USER_VIEW_LINK_SECRET) {
+    return renderLayout("Unavailable", `
+      <div class="card" style="max-width:780px; margin:40px auto;">
+        <h2>Temporary history links are not configured.</h2>
+      </div>
+    `);
+  }
+
+  const token = typeof tokenRaw === "string" ? tokenRaw.trim() : "";
+  if (!token) {
+    return renderLayout("Invalid Link", `
+      <div class="card" style="max-width:780px; margin:40px auto;">
+        <h2>Invalid link.</h2>
+      </div>
+    `);
+  }
+
+  const payload = verifyUserViewToken(token, USER_VIEW_LINK_SECRET);
+  if (!payload) {
+    return renderLayout("Expired Link", `
+      <div class="card" style="max-width:780px; margin:40px auto;">
+        <h2>This link is invalid or expired.</h2>
+      </div>
+    `);
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+  if (!user) {
+    return renderLayout("Not Found", `
+      <div class="card" style="max-width:780px; margin:40px auto;">
+        <h2>User not found.</h2>
+      </div>
+    `);
+  }
+
+  if (payload.kind === "transactions") {
+    const [topups, purchases] = await Promise.all([
+      prisma.topUpRequest.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      }),
+      prisma.purchase.findMany({
+        where: { userId: user.id },
+        include: { product: true },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      }),
+    ]);
+
+    const topupRows = topups.map((item) => `
+      <tr>
+        <td>${escapeHtml(formatDate(item.createdAt))}</td>
+        <td>${escapeHtml(formatKs(item.amount))}</td>
+        <td>${escapeHtml(item.paymentMethod)}</td>
+        <td>${escapeHtml(item.status)}</td>
+      </tr>
+    `).join("");
+
+    const purchaseRows = purchases.map((item) => `
+      <tr>
+        <td>${escapeHtml(formatDate(item.createdAt))}</td>
+        <td>${escapeHtml(item.product.name)}</td>
+        <td>${item.quantity}</td>
+        <td>${escapeHtml(formatKs(item.totalCost))}</td>
+        <td>${escapeHtml(item.paymentMethod)}</td>
+        <td>${escapeHtml(item.status)}</td>
+      </tr>
+    `).join("");
+
+    return renderLayout("Full Transactions", `
+      <div class="card">
+        <h1>Full Transactions</h1>
+        <p class="muted">${escapeHtml(user.firstName)} (${user.telegramId.toString()})</p>
+      </div>
+      <div class="card">
+        <h2>Top-Ups</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
+          <tbody>${topupRows || "<tr><td colspan='4'>No top-up records.</td></tr>"}</tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Purchases</h2>
+        <table>
+          <thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Method</th><th>Status</th></tr></thead>
+          <tbody>${purchaseRows || "<tr><td colspan='6'>No purchase records.</td></tr>"}</tbody>
+        </table>
+      </div>
+    `);
+  }
+
+  const purchases = await prisma.purchase.findMany({
+    where: {
+      userId: user.id,
+      status: "APPROVED",
+    },
+    include: {
+      product: true,
+      vpnKeys: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+
+  const cards = purchases.map((item) => {
+    const keys = item.vpnKeys.length
+      ? item.vpnKeys.map((key, index) => `<div><b>${index + 1}.</b> <code>${escapeHtml(key.keyValue)}</code></div>`).join("")
+      : "<div class='muted'>No stored credentials/keys for this purchase.</div>";
+    return `
+      <div class="card">
+        <h3>${escapeHtml(item.product.name)}</h3>
+        <div class="muted">${escapeHtml(formatDate(item.createdAt))}</div>
+        <p><b>Server:</b> ${escapeHtml(item.product.server)}<br/>
+        <b>Data:</b> ${escapeHtml(item.product.dataCap)}<br/>
+        <b>Duration:</b> ${escapeHtml(item.product.duration)}<br/>
+        <b>Quantity:</b> ${item.quantity}<br/>
+        <b>Total Paid:</b> ${escapeHtml(formatKs(item.totalCost))}<br/>
+        <b>Payment:</b> ${escapeHtml(item.paymentMethod)}</p>
+        <div><b>Credentials / Keys</b></div>
+        ${keys}
+      </div>
+    `;
+  }).join("");
+
+  return renderLayout("Full Credentials", `
+    <div class="card">
+      <h1>Full Credentials</h1>
+      <p class="muted">${escapeHtml(user.firstName)} (${user.telegramId.toString()})</p>
+    </div>
+    ${cards || "<div class='card'>No approved purchases found.</div>"}
+  `);
 }
 
 async function buildProductGroups(products: Product[]): Promise<ProductGroup[]> {
@@ -390,6 +535,10 @@ async function main() {
     const group = typeof req.query.group === "string" ? req.query.group : "";
     const message = getFlashMessage(req.query.message);
     res.send(await renderAdminPage(group, message));
+  });
+
+  app.get("/u/history", async (req, res) => {
+    res.send(await renderUserHistoryPage(req.query.token));
   });
 
   app.post("/admin/products/sync", adminOnly, async (req, res) => {

@@ -4,6 +4,7 @@ import type { MessageEntity, User as TelegramUser } from "grammy/types";
 import { config } from "./config";
 import { prisma } from "./prisma";
 import { OutlineManagerClient } from "./services/outline";
+import { issueUserViewToken } from "./shared/user-view-links";
 
 type BotContext = Context & { state: { dbUser?: User } };
 
@@ -35,6 +36,8 @@ const uiMessageByChat = new Map<number, number>();
 const OUTLINE_API_URL = process.env.OUTLINE_API_URL?.trim() || "";
 const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false";
 const outlineClient = OUTLINE_API_URL ? new OutlineManagerClient(OUTLINE_API_URL, OUTLINE_INSECURE_TLS) : null;
+const USER_WEB_BASE_URL = process.env.USER_WEB_BASE_URL?.trim() || "";
+const USER_VIEW_LINK_SECRET = process.env.USER_VIEW_LINK_SECRET?.trim() || "";
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WALLET: "Wallet",
@@ -261,6 +264,20 @@ function buildPurchaseSuccessHtml(params: {
   }
 
   return lines.join("\n");
+}
+
+function buildUserWebLink(userId: number, kind: "transactions" | "credentials"): string | null {
+  if (!USER_WEB_BASE_URL || !USER_VIEW_LINK_SECRET) {
+    return null;
+  }
+  const token = issueUserViewToken({
+    userId,
+    kind,
+    secret: USER_VIEW_LINK_SECRET,
+    expiresInSeconds: 60 * 30,
+  });
+  const base = USER_WEB_BASE_URL.replace(/\/+$/, "");
+  return `${base}/u/history?token=${encodeURIComponent(token)}`;
 }
 
 function mainMenuKeyboard() {
@@ -607,13 +624,13 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     prisma.topUpRequest.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
-      take: 8,
+      take: 5,
     }),
     prisma.purchase.findMany({
       where: { userId },
       include: { product: true },
       orderBy: { createdAt: "desc" },
-      take: 8,
+      take: 5,
     }),
   ]);
 
@@ -640,15 +657,21 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }
   }
 
-  await respondMenu(
-    ctx,
-    lines.join("\n"),
-    new InlineKeyboard()
-      .text("Purchased Items", "history:purchased")
-      .row()
-      .text("Back", "main:menu"),
-    { rawHtml: true },
-  );
+  const txUrl = buildUserWebLink(userId, "transactions");
+  const credUrl = buildUserWebLink(userId, "credentials");
+  const keyboard = new InlineKeyboard()
+    .text("Purchased Items", "history:purchased")
+    .row();
+
+  if (txUrl) {
+    keyboard.url("Full Transactions (Web)", txUrl).row();
+  }
+  if (credUrl) {
+    keyboard.url("Full Credentials (Web)", credUrl).row();
+  }
+  keyboard.text("Back", "main:menu");
+
+  await respondMenu(ctx, lines.join("\n"), keyboard, { rawHtml: true });
 }
 
 async function sendPurchasedItemsHistory(ctx: BotContext, userId: number): Promise<void> {
@@ -662,7 +685,7 @@ async function sendPurchasedItemsHistory(ctx: BotContext, userId: number): Promi
       vpnKeys: true,
     },
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 5,
   });
 
   if (!purchases.length) {
@@ -696,12 +719,18 @@ async function sendPurchasedItemsHistory(ctx: BotContext, userId: number): Promi
     );
   }
 
-  await respondMenu(
-    ctx,
-    blocks.join("\n"),
-    new InlineKeyboard().text("Back", "main:history"),
-    { rawHtml: true },
-  );
+  const txUrl = buildUserWebLink(userId, "transactions");
+  const credUrl = buildUserWebLink(userId, "credentials");
+  const keyboard = new InlineKeyboard();
+  if (txUrl) {
+    keyboard.url("Full Transactions (Web)", txUrl).row();
+  }
+  if (credUrl) {
+    keyboard.url("Full Credentials (Web)", credUrl).row();
+  }
+  keyboard.text("Back", "main:history");
+
+  await respondMenu(ctx, blocks.join("\n"), keyboard, { rawHtml: true });
 }
 
 async function sendGuide(ctx: BotContext, topic: "topup" | "buyvpn"): Promise<void> {
