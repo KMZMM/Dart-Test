@@ -1,10 +1,9 @@
 import { PaymentMethod, Prisma, Product, ProductProvider, RequestStatus, SessionStep, StockMode, User, WalletTransactionType } from "@prisma/client";
-import { Bot, Context, InlineKeyboard } from "grammy";
+import { Bot, Context, InlineKeyboard, InputFile } from "grammy";
 import type { MessageEntity, User as TelegramUser } from "grammy/types";
 import { config } from "./config";
 import { prisma } from "./prisma";
 import { OutlineManagerClient } from "./services/outline";
-import { issueUserViewToken } from "./shared/user-view-links";
 
 type BotContext = Context & { state: { dbUser?: User } };
 
@@ -36,8 +35,6 @@ const uiMessageByChat = new Map<number, number>();
 const OUTLINE_API_URL = process.env.OUTLINE_API_URL?.trim() || "";
 const OUTLINE_INSECURE_TLS = process.env.OUTLINE_INSECURE_TLS?.trim() !== "false";
 const outlineClient = OUTLINE_API_URL ? new OutlineManagerClient(OUTLINE_API_URL, OUTLINE_INSECURE_TLS) : null;
-const USER_WEB_BASE_URL = process.env.USER_WEB_BASE_URL?.trim() || "";
-const USER_VIEW_LINK_SECRET = process.env.USER_VIEW_LINK_SECRET?.trim() || "";
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WALLET: "Wallet",
@@ -266,18 +263,191 @@ function buildPurchaseSuccessHtml(params: {
   return lines.join("\n");
 }
 
-function buildUserWebLink(userId: number, kind: "transactions" | "credentials"): string | null {
-  if (!USER_WEB_BASE_URL || !USER_VIEW_LINK_SECRET) {
-    return null;
+function latestDate(dates: Date[]): string {
+  if (!dates.length) return "-";
+  const maxTs = Math.max(...dates.map((d) => d.getTime()));
+  return formatDate(new Date(maxTs));
+}
+
+function htmlTemplate(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; background: #f5f7fb; color: #111827; font-family: Arial, sans-serif; }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+    h1, h2, h3 { margin: 0 0 10px; }
+    .muted { color: #6b7280; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; font-size: 13px; }
+    code { display: block; white-space: pre-wrap; word-break: break-all; background: #f9fafb; border-radius: 8px; padding: 6px; }
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      table, thead, tbody, tr, th, td { display: block; width: 100%; }
+      thead { display: none; }
+      tr { border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #fff; }
+      td { border-bottom: none; padding: 4px 0; }
+      td::before { content: attr(data-label) ": "; font-weight: 700; color: #374151; }
+    }
+  </style>
+</head>
+<body><div class="wrap">${body}</div></body>
+</html>`;
+}
+
+function buildTransactionsExportHtml(params: {
+  user: User;
+  topups: Array<{ createdAt: Date; amount: number; paymentMethod: PaymentMethod; status: RequestStatus }>;
+  purchases: Array<{ createdAt: Date; quantity: number; totalCost: number; paymentMethod: PaymentMethod; status: RequestStatus; product: { name: string } }>;
+}): string {
+  const generatedAt = formatDate(new Date());
+  const lastDataAt = latestDate([
+    ...params.topups.map((x) => x.createdAt),
+    ...params.purchases.map((x) => x.createdAt),
+  ]);
+
+  const topupRows = params.topups.map((item) => `
+    <tr>
+      <td data-label="Date">${escapeHtml(formatDate(item.createdAt))}</td>
+      <td data-label="Amount">${escapeHtml(formatKs(item.amount))}</td>
+      <td data-label="Method">${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])}</td>
+      <td data-label="Status">${escapeHtml(statusText(item.status))}</td>
+    </tr>
+  `).join("");
+
+  const purchaseRows = params.purchases.map((item) => `
+    <tr>
+      <td data-label="Date">${escapeHtml(formatDate(item.createdAt))}</td>
+      <td data-label="Product">${escapeHtml(item.product.name)}</td>
+      <td data-label="Qty">${item.quantity}</td>
+      <td data-label="Total">${escapeHtml(formatKs(item.totalCost))}</td>
+      <td data-label="Method">${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])}</td>
+      <td data-label="Status">${escapeHtml(statusText(item.status))}</td>
+    </tr>
+  `).join("");
+
+  return htmlTemplate("TechStore Full Transactions", `
+    <div class="card">
+      <h1>TechStore Full Transactions</h1>
+      <div class="muted">User: ${escapeHtml(displayName(params.user))} (${params.user.telegramId.toString()})</div>
+      <div class="muted">Generated at: ${escapeHtml(generatedAt)}</div>
+      <div class="muted">Last data time: ${escapeHtml(lastDataAt)}</div>
+    </div>
+    <div class="card">
+      <h2>Top-Ups</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
+        <tbody>${topupRows || "<tr><td data-label='Info' colspan='4'>No top-up records.</td></tr>"}</tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Purchases</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Method</th><th>Status</th></tr></thead>
+        <tbody>${purchaseRows || "<tr><td data-label='Info' colspan='6'>No purchase records.</td></tr>"}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function buildCredentialsExportHtml(params: {
+  user: User;
+  purchases: Array<{
+    createdAt: Date;
+    quantity: number;
+    totalCost: number;
+    paymentMethod: PaymentMethod;
+    product: { name: string; server: string; dataCap: string; duration: string };
+    vpnKeys: Array<{ keyValue: string }>;
+  }>;
+}): string {
+  const generatedAt = formatDate(new Date());
+  const lastDataAt = latestDate(params.purchases.map((x) => x.createdAt));
+  const purchaseCards = params.purchases.map((item) => {
+    const keysHtml = item.vpnKeys.length
+      ? item.vpnKeys.map((k, i) => `<div><b>${i + 1}.</b><code>${escapeHtml(k.keyValue)}</code></div>`).join("")
+      : "<div class='muted'>No stored credentials/keys for this purchase.</div>";
+    return `
+      <div class="card">
+        <h3>${escapeHtml(item.product.name)}</h3>
+        <div class="muted">Date: ${escapeHtml(formatDate(item.createdAt))}</div>
+        <div><b>Server:</b> ${escapeHtml(item.product.server)}</div>
+        <div><b>Data:</b> ${escapeHtml(item.product.dataCap)}</div>
+        <div><b>Duration:</b> ${escapeHtml(item.product.duration)}</div>
+        <div><b>Quantity:</b> ${item.quantity}</div>
+        <div><b>Total Paid:</b> ${escapeHtml(formatKs(item.totalCost))}</div>
+        <div><b>Payment:</b> ${escapeHtml(PAYMENT_METHOD_LABELS[item.paymentMethod])}</div>
+        <div style="margin-top:8px;"><b>Credentials / Keys</b></div>
+        ${keysHtml}
+      </div>
+    `;
+  }).join("");
+
+  return htmlTemplate("TechStore Full Credentials", `
+    <div class="card">
+      <h1>TechStore Full Credentials</h1>
+      <div class="muted">User: ${escapeHtml(displayName(params.user))} (${params.user.telegramId.toString()})</div>
+      <div class="muted">Generated at: ${escapeHtml(generatedAt)}</div>
+      <div class="muted">Last data time: ${escapeHtml(lastDataAt)}</div>
+    </div>
+    ${purchaseCards || "<div class='card'>No approved purchases found.</div>"}
+  `);
+}
+
+async function sendTransactionsExportFile(ctx: BotContext, userId: number): Promise<void> {
+  const [user, topups, purchases] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    prisma.topUpRequest.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: { createdAt: true, amount: true, paymentMethod: true, status: true },
+    }),
+    prisma.purchase.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      include: { product: { select: { name: true } } },
+    }),
+  ]);
+  if (!user) {
+    await ctx.reply("User not found.");
+    return;
   }
-  const token = issueUserViewToken({
-    userId,
-    kind,
-    secret: USER_VIEW_LINK_SECRET,
-    expiresInSeconds: 60 * 30,
+  const html = buildTransactionsExportHtml({ user, topups, purchases });
+  const filename = `techstore-transactions-${userId}.html`;
+  await ctx.replyWithDocument(new InputFile(Buffer.from(html, "utf-8"), filename), {
+    caption: "Full transactions export (offline HTML).",
   });
-  const base = USER_WEB_BASE_URL.replace(/\/+$/, "");
-  return `${base}/u/history?token=${encodeURIComponent(token)}`;
+}
+
+async function sendCredentialsExportFile(ctx: BotContext, userId: number): Promise<void> {
+  const [user, purchases] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId } }),
+    prisma.purchase.findMany({
+      where: { userId, status: "APPROVED" },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      include: {
+        product: { select: { name: true, server: true, dataCap: true, duration: true } },
+        vpnKeys: { select: { keyValue: true } },
+      },
+    }),
+  ]);
+  if (!user) {
+    await ctx.reply("User not found.");
+    return;
+  }
+  const html = buildCredentialsExportHtml({ user, purchases });
+  const filename = `techstore-credentials-${userId}.html`;
+  await ctx.replyWithDocument(new InputFile(Buffer.from(html, "utf-8"), filename), {
+    caption: "Full credentials export (offline HTML).",
+  });
 }
 
 function mainMenuKeyboard() {
@@ -657,18 +827,13 @@ async function sendTransactionHistory(ctx: BotContext, userId: number): Promise<
     }
   }
 
-  const txUrl = buildUserWebLink(userId, "transactions");
-  const credUrl = buildUserWebLink(userId, "credentials");
   const keyboard = new InlineKeyboard()
     .text("Purchased Items", "history:purchased")
+    .row()
+    .text("Full Transactions (.html)", "history:export:transactions")
+    .row()
+    .text("Full Credentials (.html)", "history:export:credentials")
     .row();
-
-  if (txUrl) {
-    keyboard.url("Full Transactions (Web)", txUrl).row();
-  }
-  if (credUrl) {
-    keyboard.url("Full Credentials (Web)", credUrl).row();
-  }
   keyboard.text("Back", "main:menu");
 
   await respondMenu(ctx, lines.join("\n"), keyboard, { rawHtml: true });
@@ -719,16 +884,12 @@ async function sendPurchasedItemsHistory(ctx: BotContext, userId: number): Promi
     );
   }
 
-  const txUrl = buildUserWebLink(userId, "transactions");
-  const credUrl = buildUserWebLink(userId, "credentials");
-  const keyboard = new InlineKeyboard();
-  if (txUrl) {
-    keyboard.url("Full Transactions (Web)", txUrl).row();
-  }
-  if (credUrl) {
-    keyboard.url("Full Credentials (Web)", credUrl).row();
-  }
-  keyboard.text("Back", "main:history");
+  const keyboard = new InlineKeyboard()
+    .text("Full Transactions (.html)", "history:export:transactions")
+    .row()
+    .text("Full Credentials (.html)", "history:export:credentials")
+    .row()
+    .text("Back", "main:history");
 
   await respondMenu(ctx, blocks.join("\n"), keyboard, { rawHtml: true });
 }
@@ -1715,6 +1876,20 @@ bot.callbackQuery("history:purchased", async (ctx) => {
   if (!user) return;
   await ctx.answerCallbackQuery();
   await sendPurchasedItemsHistory(ctx, user.id);
+});
+
+bot.callbackQuery("history:export:transactions", async (ctx) => {
+  const user = ctx.state.dbUser;
+  if (!user) return;
+  await ctx.answerCallbackQuery({ text: "Preparing full transactions HTML..." });
+  await sendTransactionsExportFile(ctx, user.id);
+});
+
+bot.callbackQuery("history:export:credentials", async (ctx) => {
+  const user = ctx.state.dbUser;
+  if (!user) return;
+  await ctx.answerCallbackQuery({ text: "Preparing full credentials HTML..." });
+  await sendCredentialsExportFile(ctx, user.id);
 });
 
 bot.callbackQuery("main:guide", async (ctx) => {
