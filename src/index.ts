@@ -222,24 +222,29 @@ function mainMenuKeyboard() {
       [{
         text: "Buy Vpn Keys",
         callback_data: "main:buyvpn",
+        icon_custom_emoji_id: "6037533655105016950",
       }],
       [
         {
           text: "Transaction History",
           callback_data: "main:history",
+          icon_custom_emoji_id: "5246723905535632915",
         },
         {
           text: "Guide",
           callback_data: "main:guide",
+          icon_custom_emoji_id: "5452026937172048380",
         },
       ],
       [{
         text: "Join Channel",
         url: config.channelLink,
+        icon_custom_emoji_id: "5866355487255039002",
       }],
       [{
         text: "Top Up",
         callback_data: "main:topup",
+        icon_custom_emoji_id: "5206173732019659003",
         style: "success",
       }],
     ],
@@ -249,11 +254,11 @@ function mainMenuKeyboard() {
 function topUpMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY" }],
-      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY" }],
-      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY" }],
-      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY" }],
-      [{ text: "Top-Up History", callback_data: "topup:history" }],
+      [{ text: "KBZ Pay", callback_data: "topup:method:KBZ_PAY", icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: "topup:method:WAVE_PAY", icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: "topup:method:UAB_PAY", icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: "topup:method:AYA_PAY", icon_custom_emoji_id: "6244330244438760349" }],
+      [{ text: "Top-Up History", callback_data: "topup:history", icon_custom_emoji_id: "5246723905535632915" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -274,8 +279,8 @@ function buyCancelKeyboard() {
 function guideMenuKeyboard(): InlineKeyboard {
   return {
     inline_keyboard: [
-      [{ text: "How to Top Up", callback_data: "guide:topup" }],
-      [{ text: "How to Buy VPN Key", callback_data: "guide:buyvpn" }],
+      [{ text: "How to Top Up", callback_data: "guide:topup", icon_custom_emoji_id: "5452026937172048380" }],
+      [{ text: "How to Buy VPN Key", callback_data: "guide:buyvpn", icon_custom_emoji_id: "5452026937172048380" }],
       [{ text: "Back", callback_data: "main:menu" }],
     ],
   } as any;
@@ -293,11 +298,11 @@ function productDetailsKeyboard(productId: number, subCategory: string): InlineK
 function paymentChoiceKeyboard(productId: number, quantity: number) {
   return {
     inline_keyboard: [
-      [{ text: "Pay with Wallet", callback_data: `pay:WALLET:${productId}:${quantity}` }],
-      [{ text: "KBZ Pay", callback_data: `pay:KBZ_PAY:${productId}:${quantity}` }],
-      [{ text: "Wave Pay", callback_data: `pay:WAVE_PAY:${productId}:${quantity}` }],
-      [{ text: "UAB Pay", callback_data: `pay:UAB_PAY:${productId}:${quantity}` }],
-      [{ text: "AYA Pay", callback_data: `pay:AYA_PAY:${productId}:${quantity}` }],
+      [{ text: "Pay with Wallet", callback_data: `pay:WALLET:${productId}:${quantity}`, icon_custom_emoji_id: "5206173732019659003" }],
+      [{ text: "KBZ Pay", callback_data: `pay:KBZ_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6242327582793014742" }],
+      [{ text: "Wave Pay", callback_data: `pay:WAVE_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244400153621438081" }],
+      [{ text: "UAB Pay", callback_data: `pay:UAB_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244369556274421017" }],
+      [{ text: "AYA Pay", callback_data: `pay:AYA_PAY:${productId}:${quantity}`, icon_custom_emoji_id: "6244330244438760349" }],
       [{ text: "Cancel", callback_data: "main:buyvpn" }],
     ],
   } as any;
