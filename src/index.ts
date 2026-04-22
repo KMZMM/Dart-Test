@@ -50,6 +50,7 @@ const PURCHASE_EMOJI = {
   QUANTITY: "6163514786882526317",
   TOTAL: "5409048419211682843",
   BALANCE: "5258204546391351475",
+  WARNING: "6161048324603412599",
 } as const;
 
 function formatKs(value: number): string {
@@ -1751,7 +1752,8 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
   if (result.reason === "INSUFFICIENT_STOCK") {
     await bot.api.sendMessage(
       result.user.telegramId.toString(),
-      "Payment not approved because keys are out of stock. Please contact support.",
+      `<tg-emoji emoji-id='${PURCHASE_EMOJI.WARNING}'>⚠️</tg-emoji><b>Payment not approved because keys are out of stock. Please contact support.</b>`,
+      { parse_mode: "HTML" },
     );
     await sendMainMenuToChat(result.user.telegramId);
     await ctx.answerCallbackQuery({ text: "Rejected - out of stock" });
@@ -1761,7 +1763,8 @@ bot.callbackQuery(/^adm:(topup|purchase):(approve|reject):(\d+)$/, async (ctx) =
 
   await bot.api.sendMessage(
     result.user.telegramId.toString(),
-    "Payment not approved. Please contact support.",
+    `<tg-emoji emoji-id='${PURCHASE_EMOJI.WARNING}'>⚠️</tg-emoji><b>Payment not approved. Please contact support.</b>`,
+    { parse_mode: "HTML" },
   );
   await sendMainMenuToChat(result.user.telegramId);
   await ctx.answerCallbackQuery({ text: "Purchase rejected" });
