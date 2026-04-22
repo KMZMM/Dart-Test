@@ -863,20 +863,54 @@ async function sendProductDetails(ctx: BotContext, product: Product): Promise<vo
   });
   const sharedInfo = categoryContent?.productInfo?.trim() || "";
   const stockText = product.stockMode === "UNLIMITED" ? "Unlimited" : "Limited";
-  const text = [
-    "Product Details",
-    "",
-    `Server: ${product.server}`,
-    `Data: ${product.dataCap}`,
-    `Duration: ${product.duration}`,
-    `Stock: ${stockText}`,
-    `Price: ${formatKs(product.price)}/month`,
-    "",
-    "Product Info:",
-    sharedInfo || "-",
-  ].join("\n");
 
-  await respondMenu(ctx, text, productDetailsKeyboard(product.id, product.subCategory));
+  const lines = [
+    "💠 Product Details",
+    "",
+    `👍 Server: ${product.server}`,
+    `🌐 Data: ${product.dataCap}`,
+    `⏱ Duration: ${product.duration}`,
+    `📈 Stock: ${stockText}`,
+    `💵 Price: ${formatKs(product.price)}/month`,
+    "",
+    `😩 Product Info:\n${sharedInfo || "-"}`,
+  ];
+  const text = lines.join("\n");
+
+  const emojiSpecs: Array<{ lineIndex: number; emojiId: string }> = [
+    { lineIndex: 0, emojiId: "4960766907113276588" }, // Product Details
+    { lineIndex: 2, emojiId: "6082614104290232643" }, // Server
+    { lineIndex: 3, emojiId: "6082116463609517673" }, // Data
+    { lineIndex: 4, emojiId: "5909068103790106321" }, // Duration
+    { lineIndex: 5, emojiId: "5449872877929127395" }, // Stock
+    { lineIndex: 6, emojiId: "5409048419211682843" }, // Price
+    { lineIndex: 8, emojiId: "5445375244011328755" }, // Product Info
+  ];
+
+  const lineOffsets: number[] = [];
+  let runningOffset = 0;
+  for (const line of lines) {
+    lineOffsets.push(runningOffset);
+    runningOffset += line.length + 1; // + "\n"
+  }
+
+  const entities: MessageEntity[] = emojiSpecs.map((spec) => ({
+    type: "custom_emoji",
+    offset: lineOffsets[spec.lineIndex],
+    length: 2, // one emoji surrogate pair
+    custom_emoji_id: spec.emojiId,
+  }));
+  entities.push({
+    type: "bold",
+    offset: 0,
+    length: text.length,
+  });
+
+  try {
+    await respondMenuWithEntities(ctx, text, entities, productDetailsKeyboard(product.id, product.subCategory));
+  } catch {
+    await respondMenu(ctx, text, productDetailsKeyboard(product.id, product.subCategory));
+  }
 }
 async function sendPurchasePaymentChoice(ctx: BotContext, product: Product, quantity: number): Promise<void> {
   const total = product.price * quantity;
