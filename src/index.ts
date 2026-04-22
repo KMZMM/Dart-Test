@@ -287,12 +287,13 @@ function guideMenuKeyboard(): InlineKeyboard {
 }
 
 function productDetailsKeyboard(productId: number, subCategory: string): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("Buy 1", `buy1:${productId}`)
-    .row()
-    .text("Buy Multiple", `buym:${productId}`)
-    .row()
-    .text("Back", `cat:${encodeURIComponent(subCategory)}`);
+  return {
+    inline_keyboard: [
+      [{ text: "Buy 1", callback_data: `buy1:${productId}`, style: "success" }],
+      [{ text: "Buy Multiple", callback_data: `buym:${productId}`, style: "success" }],
+      [{ text: "Back", callback_data: `cat:${encodeURIComponent(subCategory)}`, style: "danger" }],
+    ],
+  } as any;
 }
 
 function paymentChoiceKeyboard(productId: number, quantity: number) {
