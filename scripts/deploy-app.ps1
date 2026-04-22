@@ -178,6 +178,18 @@ $envs = @(
     scope = "RUN_TIME"
     type = "GENERAL"
     value = $(if ($env:OUTLINE_INSECURE_TLS) { $env:OUTLINE_INSECURE_TLS } else { "true" })
+  },
+  @{
+    key = "USER_WEB_BASE_URL"
+    scope = "RUN_TIME"
+    type = "GENERAL"
+    value = $(if ($env:USER_WEB_BASE_URL) { $env:USER_WEB_BASE_URL } else { "" })
+  },
+  @{
+    key = "USER_VIEW_LINK_SECRET"
+    scope = "RUN_TIME"
+    type = "SECRET"
+    value = $(if ($env:USER_VIEW_LINK_SECRET) { $env:USER_VIEW_LINK_SECRET } else { "" })
   }
 )
 
